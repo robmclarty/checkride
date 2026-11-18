@@ -15,6 +15,42 @@ the lockfile takes the release. In a `mise.toml`, change the version on the
 `mise install`. A repo on an older 0.x release reads the entries between its
 version and this one first, since a 0.x minor could break.
 
+### Added
+
+- **A red `security` slot lists the advisories that failed it.** Each prints
+  as its package and installed versions, its title, and the range that fixes
+  it or `no fixed release`, with its GHSA id in brackets. Before, the slot
+  printed only a count, under a line saying checkride could read no findings
+  in the report. `checkride/findings` serves the same advisories:
+  `isParseable('pnpm-audit')` is now true, and each is a finding with no file
+  that gates at or above the argv's `--audit-level`. They are never keyed
+  into the baseline.
+
+### Changed
+
+- **The scaffold's tool pins move to current releases.** `checkride init`
+  now writes markdownlint-cli2 0.24.1 (was 0.23.3), which carries markdown-it
+  15.0.3 (GHSA-r7fv-28h4-cvq7, GHSA-gfr2-rv44-r23c); fallow 3.43.1 (was
+  3.31.0), which fixes GHSA-h4fr-cmh5-qr62 and GHSA-jfwm-3p3c-6hx5; oxlint
+  1.94.0 and oxlint-tsgolint 7.0.2007; vitest and `@vitest/coverage-v8`
+  5.1.0; cspell 10.5.1; `@vvago/vale` 3.25.1; and ast-grep 0.51.3, in
+  `package.json` and in a `mise.toml`. An existing repo keeps its own pins.
+  fallow 3.43 reports two things 3.31 did not, either of which can turn
+  `dead` red after a bump: a binary a script or test spawns that no
+  dependency provides (list it under `ignoreBinaries`), and a dependency
+  only a `build/` directory imports, since it now skips that directory even
+  when an `entry` names a file in it (list it under `ignoreDependencies`,
+  or add `!build/**` to `ignorePatterns`).
+
+### Fixed
+
+- **A fallow `unlisted_binaries` finding is listed and keyed.** fallow 3.43
+  counts a binary that a script or a test spawns and no dependency provides,
+  and checkride read it as a finding it could not name: a red `dead` printed
+  `no findings checkride can read in the JSON report`, and a baseline could
+  not grandfather it. It now prints as the binary's name at the first place
+  that runs it, under the key `dead-code:unlisted_binaries:<binary>`.
+
 ## [0.24.0] - 2026-11-18
 
 ### Added

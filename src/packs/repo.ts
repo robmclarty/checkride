@@ -77,7 +77,7 @@ export const REPO_PACK: Pack = {
         { file: 'sgconfig.yml', keys: ['customLanguages'] },
         { file: 'sgconfig.yaml', keys: ['customLanguages'] },
       ],
-      devDeps: { '@ast-grep/cli': '0.45.3' },
+      devDeps: { '@ast-grep/cli': '0.51.3' },
     },
     {
       name: 'markdownlint-cli2',
@@ -102,7 +102,7 @@ export const REPO_PACK: Pack = {
         { file: '.markdownlint-cli2.yaml', keys: [...MARKDOWNLINT_CODE_KEYS] },
         { file: 'package.json', keys: [...MARKDOWNLINT_CODE_KEYS], under: 'markdownlint-cli2' },
       ],
-      devDeps: { 'markdownlint-cli2': '0.23.3' },
+      devDeps: { 'markdownlint-cli2': '0.24.1' },
     },
     {
       name: 'rumdl',
@@ -165,7 +165,7 @@ export const REPO_PACK: Pack = {
         ...CSPELL_DATA_CONFIGS.map((file) => ({ file, keys: ['import'], value: CSPELL_SCRIPT })),
         { file: 'package.json', keys: ['import'], value: CSPELL_SCRIPT, under: 'cspell' },
       ],
-      devDeps: { cspell: '10.3.6' },
+      devDeps: { cspell: '10.5.1' },
     },
     {
       name: 'typos',
@@ -207,7 +207,7 @@ export const REPO_PACK: Pack = {
         { file: '.vale.ini', keys: ['StylesPath'], value: UNREAD_STYLES },
         { file: '_vale.ini', keys: ['StylesPath'], value: UNREAD_STYLES },
       ],
-      devDeps: { '@vvago/vale': '3.24.0' },
+      devDeps: { '@vvago/vale': '3.25.1' },
     },
     {
       name: 'unclaimed',

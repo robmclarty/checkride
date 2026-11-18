@@ -123,11 +123,22 @@ async function runCli(cwd: string, args: readonly string[]): Promise<number> {
   }
 }
 
-/** Drop the `link:../..` checkride devDependency, which can't resolve from a copy, and install. */
+/**
+ * Make the checkride devDependency one a copy can install, and install. An
+ * example's `link:../..` can't resolve from a copy, so it is dropped, as its
+ * frozen summary was recorded. A scaffold's names a version the registry may
+ * not hold yet, so the working tree is linked in its place: it stays listed,
+ * since the scaffold's scripts run `checkride` and its fallow, 3.43, reports
+ * a binary no dependency provides.
+ */
 async function install(dir: string): Promise<void> {
   const pkgPath = join(dir, 'package.json');
   const pkg = await readJson<{ devDependencies?: Record<string, string> }>(pkgPath);
-  if (pkg.devDependencies) delete pkg.devDependencies['checkride'];
+  const spec = pkg.devDependencies?.['checkride'];
+  if (pkg.devDependencies && spec !== undefined) {
+    if (spec.startsWith('link:')) delete pkg.devDependencies['checkride'];
+    else pkg.devDependencies['checkride'] = `link:${ROOT}`;
+  }
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
   await execFileP('pnpm', ['install'], { cwd: dir, ...BIG });
 }

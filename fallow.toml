@@ -8,10 +8,10 @@
 # `checkride/findings` subpath's entry, src/findings/api.ts, is declared for
 # the same reason: nothing in the package imports it. stryker.config.mjs names
 # vitest.stryker.config.ts as a string, which fallow can't follow.
-# build/sea/build.mjs is `pnpm build:sea`, which builds the standalone binary:
-# a script package.json runs and nothing imports, and the one user of esbuild.
-# fallow leaves build/ out by default, so what that directory imports is
-# listed under ignoreDependencies below.
+# build/sea/ holds `pnpm build:sea`, which builds the standalone binary. fallow
+# leaves any build/ directory out by default (from 3.43 an entry no longer
+# brings one back), so it is not an entry here, and what it imports is listed
+# under ignoreDependencies below.
 entry = [
   "src/index.ts",
   "src/findings/api.ts",
@@ -22,7 +22,6 @@ entry = [
   "test/**/*.test.ts",
   "stryker.config.mjs",
   "vitest.stryker.config.ts",
-  "build/sea/build.mjs",
 ]
 
 # The static site (GitHub Pages): support.js is a generated runtime bundle and
@@ -34,6 +33,10 @@ entry = [
 # analysis of them from here would be noise.
 ignorePatterns = ["site/**", "examples/**"]
 
+# Binaries the e2e suite spawns that no npm package provides: mise.toml pins
+# them, and CI installs them with jdx/mise-action.
+ignoreBinaries = ["mise", "shellcheck", "tofu"]
+
 # CLI/tooling deps used via command line or config files, not imported from source.
 ignoreDependencies = [
   "@ast-grep/cli",
@@ -41,6 +44,8 @@ ignoreDependencies = [
   "@arethetypeswrong/cli",
   "@vvago/vale",
   "publint",
+  # build/sea/build.mjs bundles with it, in a directory fallow doesn't read.
+  "esbuild",
   # The schema slot's parsers. Nothing under src/ imports them, by design: the
   # npm package loads them from the repo it checks. Here they are what the
   # standalone binary bundles (build/sea/schema-libraries.mjs, which fallow

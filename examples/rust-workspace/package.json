@@ -8,7 +8,7 @@
     "check": "checkride"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.45.3",
+    "@ast-grep/cli": "0.51.3",
     "checkride": "link:../.."
   }
 }

@@ -1,0 +1,43 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index da256acfcb094a72935013581b2c8592de68ff1b..c0f91bc5c3855dec72705285ebdda6b98cca0818 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -46,32 +46,32 @@ var versions = {
+ 		"skip": false,
+ 		"bins": {
+ 			"Linux_64-bit": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037022",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz",
+ 				"checksum": "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182",
+ 				"size": 13080706
+ 			},
+ 			"Linux_arm64": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037026",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_arm64.tar.gz",
+ 				"checksum": "2a69755b68118c612c455fc0c5ea1b9438519aa1c852e3fb303b3ad97141bbb0",
+ 				"size": 12328808
+ 			},
+ 			"macOS_64-bit": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037025",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_macOS_64-bit.tar.gz",
+ 				"checksum": "e27097e84a812d45546de8d6a4ffa75538cab39c96f79b153b601240f8cefaf9",
+ 				"size": 13076019
+ 			},
+ 			"macOS_arm64": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037030",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_macOS_arm64.tar.gz",
+ 				"checksum": "fbcaa68d9b9e229b9c8dc918f209e93572ce943039700b7e04a423ff12f684cd",
+ 				"size": 12739811
+ 			},
+ 			"Windows_64-bit": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037103",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Windows_64-bit.zip",
+ 				"checksum": "5f4b5cefee5d0f7ee0621d7cc035886515888fd732c4e8add36d3c922f2adc68",
+ 				"size": 13359702
+ 			},
+ 			"Windows_arm64": {
+-				"url": "https://api.github.com/repos/vale-cli/vale/releases/assets/667037097",
++				"url": "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Windows_arm64.zip",
+ 				"checksum": "d9182694306dfb9f8f22c27504822cd7829c42d969e13a20f2302bc989e93005",
+ 				"size": 12502440
+ 			}

@@ -14,7 +14,8 @@
  * surfaced and `exit_code: -1` — the code the plugin's readers name a harness
  * problem, not a finding — the latter is green. The raw audit JSON is passed
  * through on stdout, so the orchestrator persists `.check/security.json` as
- * before.
+ * before, and a red slot lists the advisories that failed it, read out of
+ * that report by `findings/parsers/pnpm-audit.ts`.
  *
  * The args' `--fetch-<setting>` flags bound the wait on the advisory
  * endpoint, and they reach pnpm as environment variables rather than flags
@@ -74,8 +75,8 @@ export function fetchSettings(args: readonly string[]): { args: string[]; env: R
 }
 
 /** `--audit-level` vocabulary, weakest first. `info` never gates (as in pnpm). */
-const LEVELS = ['low', 'moderate', 'high', 'critical'] as const;
-export type AuditLevel = (typeof LEVELS)[number];
+export const AUDIT_LEVELS = ['low', 'moderate', 'high', 'critical'] as const;
+export type AuditLevel = (typeof AUDIT_LEVELS)[number];
 
 /**
  * The gate threshold the args declare. Absent flag → `'low'`, mirroring the
@@ -86,7 +87,7 @@ export type AuditLevel = (typeof LEVELS)[number];
 export function auditLevelFromArgs(args: readonly string[]): AuditLevel {
   const flag = args.find((a) => a.startsWith('--audit-level='));
   const value = flag?.slice('--audit-level='.length);
-  return LEVELS.find((l) => l === value) ?? 'low';
+  return AUDIT_LEVELS.find((l) => l === value) ?? 'low';
 }
 
 /**
@@ -195,7 +196,7 @@ export async function checkSecurity(opts: {
   const counts = json ? severityCounts(json.value) : null;
   if (!counts) return noVerdict(command, outcome, json);
 
-  const gating = LEVELS.slice(LEVELS.indexOf(level));
+  const gating = AUDIT_LEVELS.slice(AUDIT_LEVELS.indexOf(level));
   const above = gating.map((s) => [s, counts[s] ?? 0] as const).filter(([, n]) => n > 0);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 

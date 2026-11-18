@@ -23,6 +23,7 @@ import { markdownlintCli2Parser } from './parsers/markdownlint-cli2.js';
 import { mypyParser } from './parsers/mypy.js';
 import { odinCheckParser } from './parsers/odin.js';
 import { oxlintParser } from './parsers/oxlint.js';
+import { pnpmAuditParser } from './parsers/pnpm-audit.js';
 import { ruffParser } from './parsers/ruff.js';
 import { rumdlParser } from './parsers/rumdl.js';
 import { schemaParser } from './parsers/schema.js';
@@ -70,6 +71,7 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   'odin-vet': odinCheckParser,
   'odin-unused': odinCheckParser,
   schema: schemaParser,
+  'pnpm-audit': pnpmAuditParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

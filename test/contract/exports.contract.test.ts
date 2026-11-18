@@ -99,6 +99,18 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['tflint', 'terraform-validate', 'trivy-config']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('the security slot\'s pnpm audit report is parseable, each advisory a finding with no file under its GHSA id', () => {
+    expect(findings.isParseable('pnpm-audit')).toBe(true);
+    const report = JSON.stringify({
+      advisories: { 1: { module_name: 'zod', title: 'Zod can exhaust memory', severity: 'high', github_advisory_id: 'GHSA-mrhx-c7xc-m3w5', patched_versions: '>=4.6.6', findings: [{ version: '4.4.3' }] } },
+      metadata: { vulnerabilities: { high: 1 } },
+    });
+    expect(findings.parseFindings('pnpm-audit', report)?.map((f) => [f.file, f.rule, f.message, f.severity, f.gates])).toEqual([
+      ['', 'GHSA-mrhx-c7xc-m3w5', 'zod 4.4.3: Zod can exhaust memory (fixed in >=4.6.6)', 'high', true],
+    ]);
+    expect(findings.parseFindings('pnpm-audit', '{"error":{"message":"timeout"}}')).toBeNull();
+  });
+
   test('the odin pack\'s compiler output is parseable under each row that runs odin check', () => {
     for (const adapter of ['odin-check', 'odin-vet', 'odin-unused']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });

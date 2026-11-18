@@ -1693,7 +1693,7 @@ describe('new-project generation for another language (--lang)', () => {
       `"github:robmclarty/checkride" = "${await version()}"`,
       'go = "1.27.2"',
       'golangci-lint = "2.14.0"',
-      'ast-grep = "0.45.3"',
+      'ast-grep = "0.51.3"',
       'rumdl = "0.2.79"',
       'typos = "1.51.1"',
       '',

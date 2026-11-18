@@ -28,13 +28,15 @@ import type { KeyedFinding, Parser } from '../types.js';
  * floor rather than an exact match: fallow bumps the number for layout changes
  * that leave the fields below untouched. 2.104.0 and 3.0.0 through 3.9.1
  * emitted 7 for all three kinds; 3.22.0 emitted 11 for health and 9 for
- * dead-code and dupes; and 3.31.0 emits 11 for health, 9 for dead-code and 10
- * for dupes. Every field these parsers read (`findings[].path`/`.name`,
+ * dead-code and dupes; 3.31.0 emitted 11 for health, 9 for dead-code and 10
+ * for dupes; and 3.43.1 emits 13 for health, 11 for dead-code and 10 for
+ * dupes. Every field these parsers read (`findings[].path`/`.name`,
  * `summary.total_issues`, `clone_groups[].fingerprint`) is unchanged across
- * that span — re-verified against 3.31.0 output carrying a real finding of
+ * that span — re-verified against 3.43.1 output carrying a real finding of
  * each kind, since a shape drift here would read as zero findings and pass.
  * The fields a boundary import and a package cycle key on (`from_path` and
- * `to_path`, `package_roots`) are checked against 3.31.0 alone; a release
+ * `to_path`, `package_roots`) are checked against 3.31.0, and the boundary
+ * import's against 3.43.1 as well; a release
  * whose entries lack them reads as findings the keys miss, which keeps a
  * baseline from masking the check, never as a pass. Earlier 2.x releases
  * emitted 3 (2.0.0) or 4 (2.60.0), with an incompatible layout. A report below this floor — or one whose kind/shape we can't read —
@@ -247,6 +249,22 @@ function edgeFinding(category: string, item: Record<string, unknown>, base: Path
 }
 
 /**
+ * A binary a script or a file spawns that no dependency provides
+ * (`unlisted_binaries`, counted from fallow 3.43), keyed on the binary's name
+ * alone: fallow reports one per binary, with every place that runs it under
+ * `used_in`, so the key holds whichever of them moves. Its file and line are
+ * the first place's, rebased from `base`. Returns `null` for an item that
+ * names no binary.
+ */
+function binaryFinding(category: string, item: Record<string, unknown>, base: PathBase): KeyedFinding | null {
+  const binary = str(item['binary_name']);
+  if (!binary) return null;
+  const used = Array.isArray(item['used_in']) ? item['used_in'].find(isRecord) : undefined;
+  const file = rebasePath(base, str(used?.['path']));
+  return finding('dead-code', item, { file, ...(used ? at(used, 'line', '') : {}), rule: category, message: binary, key: `dead-code:${category}:${binary}` });
+}
+
+/**
  * One dead-code finding, keyed `dead-code:<category>:<identity>`, where
  * identity is a file and symbol (never a line or column, so the key survives
  * edits that only move the code). When a finding has a file but no symbol —
@@ -254,8 +272,9 @@ function edgeFinding(category: string, item: Record<string, unknown>, base: Path
  * and `boundary_call_violations` carry only a path — the path alone would
  * collide with its siblings in the same file, so the position is appended to
  * keep them distinct, at the cost of a key that moves. An import across a
- * boundary keys on its two ends ({@link edgeFinding}), and cross-file
- * findings (cycles) on their sorted membership ({@link cycleFinding}).
+ * boundary keys on its two ends ({@link edgeFinding}), an unlisted binary on
+ * its name ({@link binaryFinding}), and cross-file findings (cycles) on their
+ * sorted membership ({@link cycleFinding}).
  * Returns `null` when no stable identity can be read — the finding still
  * counts toward `issueCount`, it just can't be individually grandfathered
  * (which keeps the slot conservatively red, never silently green). Its file is
@@ -263,8 +282,8 @@ function edgeFinding(category: string, item: Record<string, unknown>, base: Path
  */
 function deadFinding(category: string, item: unknown, base: PathBase): KeyedFinding | null {
   if (!isRecord(item)) return null;
-  const edge = edgeFinding(category, item, base);
-  if (edge !== null) return edge;
+  const named = edgeFinding(category, item, base) ?? binaryFinding(category, item, base);
+  if (named !== null) return named;
   const file = rebasePath(base, str(item['path']) || str(item['file']));
   const symbol = symbolIdentity(item);
   const where = at(item, 'line', 'col');

@@ -1,0 +1,177 @@
+{
+  "advisories": {
+    "1242601": {
+      "findings": [
+        {
+          "version": "15.0.1",
+          "paths": [
+            ".>markdownlint-cli2>markdown-it"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1242601,
+      "title": "markdown-it: Quadratic complexity in smartquotes with unmatched closing quotes",
+      "module_name": "markdown-it",
+      "vulnerable_versions": ">=15.0.0 <15.0.2",
+      "patched_versions": ">=15.0.2",
+      "severity": "high",
+      "cwe": "CWE-400, CWE-407",
+      "github_advisory_id": "GHSA-r7fv-28h4-cvq7",
+      "url": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    "1242660": {
+      "findings": [
+        {
+          "version": "8.0.16",
+          "paths": [
+            ".>@stryker-mutator/vitest-runner>vitest>@vitest/mocker>vite",
+            ".>@stryker-mutator/vitest-runner>vitest>vite",
+            ".>@vitest/coverage-v8>vitest>@vitest/mocker>vite",
+            ".>@vitest/coverage-v8>vitest>vite",
+            ".>vitest>@vitest/mocker>vite",
+            ".>vitest>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1242660,
+      "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows",
+      "module_name": "vite",
+      "vulnerable_versions": ">=8.0.0 <=8.1.5",
+      "patched_versions": ">=8.1.6",
+      "severity": "high",
+      "cwe": "CWE-77",
+      "github_advisory_id": "GHSA-587h-7wmj-h5pm",
+      "url": "https://github.com/advisories/GHSA-587h-7wmj-h5pm"
+    },
+    "1242671": {
+      "findings": [
+        {
+          "version": "15.0.1",
+          "paths": [
+            ".>markdownlint-cli2>markdown-it"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1242671,
+      "title": "markdown-it: Quadratic-time rendering of a single multi-line link reference definition with default options (regression since 14.0)",
+      "module_name": "markdown-it",
+      "vulnerable_versions": ">=15.0.0 <15.0.3",
+      "patched_versions": ">=15.0.3",
+      "severity": "high",
+      "cwe": "CWE-400, CWE-407",
+      "github_advisory_id": "GHSA-gfr2-rv44-r23c",
+      "url": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    "1243066": {
+      "findings": [
+        {
+          "version": "4.4.3",
+          "paths": [
+            ".>@stryker-mutator/core>mutation-server-protocol>zod",
+            ".>@stryker-mutator/vitest-runner>@stryker-mutator/core>mutation-server-protocol>zod"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1243066,
+      "title": "Zod can exhaust memory while validating oversized constrained collections",
+      "module_name": "zod",
+      "vulnerable_versions": "<4.6.6",
+      "patched_versions": ">=4.6.6",
+      "severity": "high",
+      "cwe": "CWE-770",
+      "github_advisory_id": "GHSA-mrhx-c7xc-m3w5",
+      "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5"
+    },
+    "1247710": {
+      "findings": [
+        {
+          "version": "4.0.7",
+          "paths": [
+            ".>@stryker-mutator/vitest-runner>vitest>@vitest/mocker>vite>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>@vitest/mocker>vite>tinyglobby>fdir>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>@vitest/mocker>vite>tinyglobby>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>tinyglobby>fdir>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>tinyglobby>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>vite>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>vite>tinyglobby>fdir>picomatch",
+            ".>@stryker-mutator/vitest-runner>vitest>vite>tinyglobby>picomatch",
+            ".>@vitest/coverage-v8>vitest>@vitest/mocker>vite>picomatch",
+            ".>@vitest/coverage-v8>vitest>@vitest/mocker>vite>tinyglobby>fdir>picomatch",
+            ".>@vitest/coverage-v8>vitest>@vitest/mocker>vite>tinyglobby>picomatch",
+            ".>@vitest/coverage-v8>vitest>picomatch",
+            ".>@vitest/coverage-v8>vitest>tinyglobby>fdir>picomatch",
+            ".>@vitest/coverage-v8>vitest>tinyglobby>picomatch",
+            ".>@vitest/coverage-v8>vitest>vite>picomatch",
+            ".>@vitest/coverage-v8>vitest>vite>tinyglobby>fdir>picomatch",
+            ".>@vitest/coverage-v8>vitest>vite>tinyglobby>picomatch",
+            ".>cspell>@cspell/cspell-worker>cspell-lib>cspell-glob>picomatch",
+            ".>cspell>cspell-gitignore>cspell-glob>picomatch",
+            ".>cspell>cspell-glob>picomatch",
+            ".>cspell>cspell-lib>cspell-glob>picomatch",
+            ".>cspell>tinyglobby>fdir>picomatch",
+            ".>cspell>tinyglobby>picomatch",
+            ".>vitest>@vitest/mocker>vite>picomatch",
+            ".>vitest>@vitest/mocker>vite>tinyglobby>fdir>picomatch",
+            ".>vitest>@vitest/mocker>vite>tinyglobby>picomatch",
+            ".>vitest>picomatch",
+            ".>vitest>tinyglobby>fdir>picomatch",
+            ".>vitest>tinyglobby>picomatch",
+            ".>vitest>vite>picomatch",
+            ".>vitest>vite>tinyglobby>fdir>picomatch",
+            ".>vitest>vite>tinyglobby>picomatch"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "version": "2.3.2",
+          "paths": [
+            ".>markdownlint-cli2>globby>fast-glob>micromatch>picomatch",
+            ".>markdownlint-cli2>globby>micromatch>picomatch",
+            ".>markdownlint-cli2>micromatch>picomatch"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1247710,
+      "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "module_name": "picomatch",
+      "vulnerable_versions": "<=4.0.7",
+      "patched_versions": null,
+      "severity": "high",
+      "cwe": "CWE-1333",
+      "github_advisory_id": "GHSA-fc5q-39xc-vjpf",
+      "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+      "patched_versions_unpublished": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 7,
+      "moderate": 7,
+      "high": 5,
+      "critical": 0
+    },
+    "dependencies": 0,
+    "devDependencies": 592,
+    "optionalDependencies": 120,
+    "totalDependencies": 592
+  }
+}

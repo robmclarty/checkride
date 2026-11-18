@@ -112,6 +112,36 @@ function numbered(name: string, count: number): string {
   return Array.from({ length: count }, (_, i) => `${name} ${i + 1}\n`).join('');
 }
 
+/** One advisory of a pnpm audit report: `name` 1.0.0, at `severity`, fixed in `patched` or by no release. */
+function advisory(name: string, severity: string, patched: string | null): Record<string, unknown> {
+  return { module_name: name, title: `${name} is unsafe`, severity, github_advisory_id: `GHSA-${name}`, patched_versions: patched, findings: [{ version: '1.0.0' }] };
+}
+
+describe('failureExcerpt (a red dependency audit)', () => {
+  const audit = fakeAdapter({ name: 'pnpm-audit', slot: 'security', outputFile: 'security.json', command: 'pnpm', args: ['audit', '--audit-level=high', '--json'] });
+  const stderr = 'check-security: advisories at or above --audit-level=high: 2 high\n';
+
+  test('lists each advisory that gates, package, title and fix, in place of the built-in’s count', () => {
+    const stdout = JSON.stringify({
+      advisories: { 1: advisory('alpha', 'high', '>=1.0.1'), 2: advisory('beta', 'low', '>=2.0.0'), 3: advisory('gamma', 'high', null) },
+      metadata: { vulnerabilities: { high: 2, low: 1 } },
+    });
+    expect(lines(failed(audit, { stdout, stderr }))).toEqual([
+      'alpha 1.0.0: alpha is unsafe (fixed in >=1.0.1)  [GHSA-alpha]',
+      'gamma 1.0.0: gamma is unsafe (no fixed release)  [GHSA-gamma]',
+      'full output: .check/security.json',
+    ]);
+  });
+
+  test('an audit that reached no verdict shows what it said instead', () => {
+    const stdout = '{"error":{"code":23,"message":"The operation was aborted due to timeout"}}';
+    const said = 'check-security: pnpm audit could not complete: The operation was aborted due to timeout (exit 1)';
+    expect(lines(failed(audit, { stdout, stderr: `${said}\n` }, { entry: { exit_code: -1 } })).slice(1)).toEqual([
+      'stderr:', `  ${said}`, 'full output: .check/security.json, .check/security.stderr.txt',
+    ]);
+  });
+});
+
 describe('failureExcerpt (a tool with no parser)', () => {
   test('shows the one stream that holds anything, unlabelled, and names its file', () => {
     expect(lines(failed(custom, { stderr: 'error: no healthcheck\n' }))).toEqual(['error: no healthcheck', 'full output: .check/deploy.stderr.txt']);
@@ -211,7 +241,7 @@ describe('failureExcerpt (a JSON report with nothing to list)', () => {
   });
 
   test('a tool with no parser that printed JSON says the same, whether or not the run captured it as an artifact', () => {
-    const audit = fakeAdapter({ name: 'pnpm-audit', slot: 'security', outputFile: 'security.json' });
+    const audit = fakeAdapter({ name: 'npm-audit', slot: 'security', outputFile: 'security.json' });
     const pretty = JSON.stringify({ advisories: { 1: { severity: 'high' } }, metadata: {} }, null, 2);
     expect(lines(failed(audit, { stdout: pretty }))).toEqual([said, 'full output: .check/security.json']);
     expect(lines(failed(custom, { stdout: `\n${pretty}\n` }))).toEqual([said, 'full output: .check/deploy.stdout.txt']);

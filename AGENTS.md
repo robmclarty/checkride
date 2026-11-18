@@ -114,7 +114,7 @@ same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 
 `pnpm-workspace.yaml` carries `patchedDependencies`: fixes upstream hasn't
 shipped yet, with the diffs under `patches/`. Each entry's comment names its
-issue and how to retire it. Today there are two. One points `@vvago/vale`'s
+issue and how to retire it. Today there are three. One points `@vvago/vale`'s
 postinstall at the release's github.com download links instead of GitHub's
 API, whose anonymous limit (60 requests an hour per IP, shared on hosted CI
 runners) fails the install with a 403. The other carries micromatch/braces#88
@@ -122,7 +122,11 @@ into braces 3.0.3, which markdownlint-cli2 globs through, so a brace pattern
 nested past 128 throws a `SyntaxError` instead of overflowing the stack
 (GHSA-vfj7-8cjw-p6xm, which no braces release fixes). `pnpm audit` matches by
 version and can't see a patch, so `auditConfig.ignoreGhsas` ignores that
-advisory beside it. A third, which fixed `@stryker-mutator/vitest-runner` for
+advisory beside it. The third patches both installed copies of picomatch,
+2.3.2 and 4.0.7, so a repeated extglob with a `*` wildcard in its body, such
+as `+(*a)`, matches as literal text instead of backtracking exponentially
+(GHSA-fc5q-39xc-vjpf, which no picomatch release fixes), and is ignored in
+`auditConfig` the same way. A fourth, which fixed `@stryker-mutator/vitest-runner` for
 vitest 5 (stryker-js #6210), retired when 10.1.1 shipped the fix; the canary
 it left behind, `test/e2e/mutation-canary.e2e.test.ts`, fails if mutation
 testing stops killing mutants.
@@ -139,6 +143,8 @@ testing stops killing mutants.
 - **When braces ships a fix,** delete its entry, the patch file and the
   `auditConfig` ignore, re-install, and run `pnpm check --include security`.
   If the slot is green, the release fixed it.
+- **When picomatch ships a fix,** do the same for both of its entries. A
+  release without the fix needs the patch made again for the new version.
 - **When vitest, stryker or TypeScript moves,** run `pnpm test:e2e` before
   trusting the result. A mutation run that kills nothing passes every other
   check.

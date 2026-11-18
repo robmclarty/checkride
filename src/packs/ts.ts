@@ -117,7 +117,7 @@ export const TS_PACK: Pack = {
       codeConfigs: ['oxlint.config.ts', 'oxlint.config.mts', 'oxlint.config.cts', 'oxlint.config.js', 'oxlint.config.mjs', 'oxlint.config.cjs'],
       // A config it extends can add jsPlugins, and the sniff doesn't follow it.
       codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins', 'extends'] }],
-      devDeps: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003' },
+      devDeps: { oxlint: '1.94.0', 'oxlint-tsgolint': '7.0.2007' },
     },
     {
       name: 'biome',
@@ -168,7 +168,7 @@ export const TS_PACK: Pack = {
       args: ['exec', 'fallow', 'dead-code', '--format', 'json', '--quiet'],
       outputFile: 'dead.json',
       fixArgs: ['exec', 'fallow', 'fix'],
-      devDeps: { fallow: '3.31.0' },
+      devDeps: { fallow: '3.43.1' },
     },
     {
       name: 'knip',
@@ -194,7 +194,7 @@ export const TS_PACK: Pack = {
       args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
       outputFile: 'dupes.json',
       // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
-      devDeps: { fallow: '3.31.0' },
+      devDeps: { fallow: '3.43.1' },
     },
     {
       name: 'fallow',
@@ -205,7 +205,7 @@ export const TS_PACK: Pack = {
       args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
       outputFile: 'health.json',
       // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
-      devDeps: { fallow: '3.31.0' },
+      devDeps: { fallow: '3.43.1' },
     },
     {
       name: 'vitest',
@@ -223,7 +223,7 @@ export const TS_PACK: Pack = {
       ],
       outputFile: null,
       changedArgs: ['--changed', '{base}'],
-      devDeps: { vitest: '5.0.3', '@vitest/coverage-v8': '5.0.3' },
+      devDeps: { vitest: '5.1.0', '@vitest/coverage-v8': '5.1.0' },
     },
     {
       name: 'jest',

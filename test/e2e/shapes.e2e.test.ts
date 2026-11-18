@@ -15,7 +15,8 @@ import { describeWithToolchain } from '../helpers/toolchains.js';
 
 const execFileP = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
-const CLI = join(here, '..', '..', 'dist', 'cli.js');
+const REPO = join(here, '..', '..');
+const CLI = join(REPO, 'dist', 'cli.js');
 const BIG = { maxBuffer: 32 * 1024 * 1024 };
 
 /** Each shape, and where it keeps a `test/` directory: the root, plus one package. */
@@ -101,11 +102,13 @@ const PROBED_RULES = ['no-class', 'no-deep-sibling-import', 'no-default-export',
 async function generateInstall(dir: string, shape: string): Promise<void> {
   await execFileP('node', [CLI, 'init', '--shape', shape, '--name', 't', '--scope', '@demo'], { cwd: dir, ...BIG });
 
-  // The unpublished checkride devDep can't resolve from the registry yet; drop
-  // it and exercise the built CLI directly (this tests init output + the run).
+  // The scaffold names checkride as a devDependency at a version the registry
+  // may not hold yet, so link the working tree in its place, as the examples
+  // do. It stays listed: its scripts run `checkride`, and fallow 3.43 reports
+  // a binary no dependency provides.
   const pkgPath = join(dir, 'package.json');
   const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { devDependencies?: Record<string, string> };
-  if (pkg.devDependencies) delete pkg.devDependencies['checkride'];
+  if (pkg.devDependencies) pkg.devDependencies['checkride'] = `link:${REPO}`;
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
 
   await execFileP('pnpm', ['install'], { cwd: dir, ...BIG });

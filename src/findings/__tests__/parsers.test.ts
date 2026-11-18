@@ -313,6 +313,25 @@ describe('the fallow parser', () => {
     expect(report).toMatchObject({ issueCount: 3, fullyTracked: true, unkeyed: [] });
   });
 
+  test('a binary no dependency provides keys on its name, at the first place that runs it', () => {
+    // fallow 3.43.1 over a package.json whose scripts run a binary it doesn't
+    // list, trimmed to the fields read: one finding, however many scripts.
+    const raw = JSON.stringify({
+      kind: 'dead-code', schema_version: 11, total_issues: 2,
+      summary: { total_issues: 2 },
+      unlisted_binaries: [
+        { binary_name: 'checkride', used_in: [{ path: 'package.json', line: 12, col: 0, script_name: 'check' }, { path: 'package.json', line: 13, col: 0, script_name: 'check:all' }], effective_severity: 'warn' },
+        { binary_name: 'tofu', used_in: [] },
+      ],
+    });
+    const report = parseFallowReport(raw, WEB);
+    expect(report.ok && report.findings).toEqual([
+      { file: 'apps/web/package.json', line: 12, rule: 'unlisted_binaries', message: 'checkride', gates: true, slot: 'dead', key: 'dead-code:unlisted_binaries:checkride' },
+      { file: '', rule: 'unlisted_binaries', message: 'tofu', gates: true, slot: 'dead', key: 'dead-code:unlisted_binaries:tofu' },
+    ]);
+    expect(report).toMatchObject({ issueCount: 2, fullyTracked: true, unkeyed: [] });
+  });
+
   test('a package cycle keys on its package roots, and the package baselines fallow lists are no finding (#23)', () => {
     // fallow 3.31.0 over two workspace packages importing each other, under a
     // `workspaces.changedSince` that lists one package's baseline.

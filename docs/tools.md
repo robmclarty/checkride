@@ -474,7 +474,7 @@ the exit code would let a green ✔ hide real issues. Reading the count gates al
 three analyses uniformly, and an **unrecognized report fails loudly** rather than
 passing silently.
 
-This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.31.0`.
+This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.43.1`.
 An older fallow (2.x emitted `schema_version` 4) fails the slot with an explicit
 "unsupported schema_version" message — upgrade with `pnpm up fallow`.
 
@@ -1024,8 +1024,8 @@ GitHub allows 60 of those requests an hour per IP, and hosted runners share
 IPs, so a re-run inside the hour fails the same way. checkride carries a pnpm
 patch that fetches the same files from the release's github.com download links
 instead, which that limit doesn't count, and keeps the pinned sha256 check:
-[`patches/@vvago__vale@3.24.0.patch`](../patches/@vvago__vale@3.24.0.patch).
-A project on vale 3.24.0 can carry the same patch (copy the file and its
+[`patches/@vvago__vale@3.25.1.patch`](../patches/@vvago__vale@3.25.1.patch).
+A project on vale 3.25.1 can carry the same patch (copy the file and its
 `patchedDependencies` entry in `pnpm-workspace.yaml`).
 
 ### Why cspell stays

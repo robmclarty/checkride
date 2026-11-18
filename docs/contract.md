@@ -665,7 +665,7 @@ package that imports a broken one; cargo check at the first crate with
 errors; mypy at a blocking error, a syntax error among them; and basedpyright,
 in a file, at a syntax error its parser's recovery swallows the rest past.
 Neither are terraform validate's errors, from a configuration that can't plan
-either, and trivy's misconfigurations. Line and column are never part of these
+either, trivy's misconfigurations, and pnpm audit's advisories. Line and column are never part of these
 keys, so a finding keeps its key when unrelated edits move it — the property
 the ratchet and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the parser documents, and
@@ -2325,8 +2325,8 @@ parsers.** The subpath is public and semver-bound as well, and exports
   `golangci-lint`, `staticcheck`, `clippy`, `cargo-check`, `shellcheck`,
   `markdownlint-cli2`, `rumdl`, `typos`, `tsc`, `go-build`, `ruff`, `mypy`,
   `basedpyright`, `tflint`, `terraform-validate`, `trivy-config`,
-  `odin-check`, `odin-vet`, `odin-unused` and `schema`, the built-in's own
-  report, today. The set only grows. A custom check whose `name` is one of these is read by
+  `odin-check`, `odin-vet`, `odin-unused`, `schema`, the built-in's own
+  report, and `pnpm-audit`, today. The set only grows. A custom check whose `name` is one of these is read by
   that adapter's parser.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one
@@ -2340,7 +2340,11 @@ argv is known, absent when that can't be told, as for a basedpyright warning
 without `--warnings`, which fails the run only where its config sets
 `failOnWarnings`, or a trivy finding whose argv runs trivy through a wrapper.
 A trivy finding gates only under a nonzero `--exit-code`, and then when
-`--severity` lists its level or is absent. A path a tool printed relative
+`--severity` lists its level or is absent. A pnpm audit advisory is one
+finding with no file: its `rule` is the advisory's GHSA id, its `message` the
+package, the installed versions the advisory covers, its title and the range
+that fixes it, or that no release does, and it gates at or above the argv's
+`--audit-level`, as the `security` slot's verdict does. A path a tool printed relative
 to a target's root joins that root, and an absolute path inside `repoRoot` is
 made relative to it; one outside stays absolute. A nested module's path that
 tflint names through a symlinked working directory, climbing to `/` and back
@@ -2358,7 +2362,8 @@ of results or holds a message it can't read, a biome report with no
 and warnings aren't the counts its `summary` gives, a basedpyright
 report with no `generalDiagnostics` list, a tflint report with no `issues`
 list or with an entry in `errors`, a terraform validate report with no
-`diagnostics` list, trivy output that isn't its report object, markdownlint-cli2
+`diagnostics` list, trivy output that isn't its report object, pnpm audit
+output with no `advisories` map, as when the registry never answered, markdownlint-cli2
 stderr that holds text but no finding, a cargo build that never printed
 `build-finished`). An empty array means parsed and clean. A tsc run that
 stopped short of some errors, which the baseline neither masks nor prunes

@@ -31,21 +31,21 @@ allowBuilds:
 # enough. Retired that way so far: markdown-it and js-yaml (markdownlint-cli2
 # 0.23.2 resolves patched versions itself), fast-uri and brace-expansion (ajv's
 # and minimatch's own ranges reach 3.1.8 / 5.0.12), postcss (vite reaches 8.5.23).
+# smol-toml retired on 2026-11-18: markdownlint-cli2 0.24.1 pins 1.9.1 itself,
+# where 0.23.3's exact 1.8.0 pin had needed an entry.
 # Those retirements still hold: on 2026-10-08, advisories against fast-uri 3.1.7,
 # brace-expansion 5.0.9 and source-map-js 1.2.1 each cleared with a plain
 # re-resolve (`pnpm update <name>`), no entry needed.
 overrides:
-  # Re-scoped 2026-09-04: GHSA-q8mj-m7cp-5q26 was cleared by ^6.15.2, then two
-  # newer advisories moved the patched line to 6.16.0 and left 6.15.3 exposed —
-  # inside the old '<6.15.2' match range's blind spot. Removing the entry drops
-  # qs to 6.15.1 and three moderates return, so it is load-bearing, not stale
-  # (re-checked 2026-10-08).
-  'qs@>=2.2.5 <6.16.0': '^6.16.0' # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx (moderate), via typed-rest-client
-  # Re-scoped 2026-10-08: markdownlint-cli2 0.23.3 (its latest) pins smol-toml
-  # at exactly 1.8.0, which a newer advisory covers, so no re-resolve can reach
-  # the patched line on its own. cspell's range already resolves 1.9.0, and this
-  # dedupes onto it. (First added 2026-09-16 for 0.23.2's exact 1.7.0 pin.)
-  'smol-toml@<1.8.1': '^1.8.1' # GHSA-r4xh-jqrq-34v2 (moderate), GHSA-7w5x-hrqm-74c2 (high), via markdownlint-cli2
+  # typed-rest-client 2.3.1, the one @stryker-mutator/core 10.1.1 depends on,
+  # pins qs at exactly 6.15.1, so no
+  # re-resolve can reach a patched line on its own and this entry is
+  # load-bearing, not stale. Its range has had to follow the advisories:
+  # '<6.15.2' on GHSA-q8mj-m7cp-5q26, '<6.16.0' on 2026-09-04 for
+  # GHSA-4mjr-xmp4-gh2g and GHSA-x5fp-wj9c-mxmx, and '<6.16.1' on 2026-11-18
+  # for GHSA-6pq8-jhm2-2vcw, each time because the old range left the version
+  # it had resolved exposed.
+  'qs@>=2.2.5 <6.16.1': '^6.16.1' # GHSA-6pq8-jhm2-2vcw (moderate), via typed-rest-client
 
 # Patched dependencies: fixes upstream hasn't shipped yet.
 # Each entry names the issue it carries and how to tell it's done.
@@ -58,15 +58,15 @@ overrides:
 # `pnpm test:e2e`) now guards the release: it fails if a vitest, stryker or
 # TypeScript bump stops mutation testing from killing mutants.
 #
-# @vvago/vale 3.24.0's postinstall downloads vale through GitHub's REST API
-# (api.github.com/.../releases/assets/<id>) with no token and no way to pass
+# @vvago/vale's postinstall (3.24.0, and 3.25.1 still) downloads vale through
+# GitHub's REST API (api.github.com/.../releases/assets/<id>) with no token and no way to pass
 # one, so it draws on the API's anonymous limit: 60 requests an hour per IP,
 # which hosted CI runners share between jobs. On 2026-10-08, CI's macOS /
 # Node 26 job failed its install with "Download failed with status code: 403"
 # three times running, the last more than an hour after the first two, while
 # the macOS jobs on Node 22 and 24 fetched the same file, as did a Mac on the
 # same Node 26. Why the API refused only that job is unknown. The patch swaps
-# the six 3.24.0 URLs for the release's github.com download links: the same
+# the six 3.25.1 URLs for the release's github.com download links: the same
 # files, outside the API's limit, still checked against the pinned sha256.
 # Patched, that job installed cleanly while an unpatched re-run 25 minutes
 # later still got the 403, and both paths end at the same file host, which
@@ -93,20 +93,45 @@ overrides:
 # `auditConfig` ignore below, re-install, and run
 # `pnpm check --include security`. If the slot is green, the release fixed it.
 #
+# picomatch through 4.0.7 guards a repeated extglob against backtracking only
+# when its body has more than one branch or nests another repeat, so a body
+# with a `*` wildcard in it gets through: `+(*a)` compiles to
+# `(?:[^/]*?a)+`, which takes two seconds to refuse 26 a's and a `!` and
+# doubles with each a after that (GHSA-fc5q-39xc-vjpf, high). No release
+# fixes it, 4.0.7 being the latest, and the pull request the advisory links
+# (micromatch/picomatch#194) leaves `+(*a)` as it was. The patch is copied
+# from fascicle, where it was written: `analyzeRepeatedExtglob` calls any
+# `+(...)` or `*(...)` whose body holds an unescaped `*` wildcard risky, at
+# any depth and for any count of branches, and such a pattern then matches as
+# literal text, which is what picomatch already does with `*(*|a)`.
+# `maxExtglobRecursion: false` still turns the guard off. Both copies in the
+# tree carry it: 4.0.7 under vite, tinyglobby and cspell, and 2.3.2 under
+# markdownlint-cli2's globbing. All of them are dev tools that read patterns
+# from this repo, and nothing here ships.
+#
+# Retire it when picomatch ships a fix: delete both entries, both patch files
+# and the `auditConfig` ignore below, re-install, and run
+# `pnpm check --include security`. A picomatch release without the fix needs
+# the patch made again for the new version, since an entry names the version
+# it patches.
+#
 # katex's low advisory (GHSA-238p-pmpm-9mq7, katex <0.18.2, via markdownlint's
 # micromark-extension-math) stays. It sits below the `security` slot's
 # `--audit-level=high`, so it never gates, and its fix, 0.18.2, is outside
 # micromark-extension-math's `^0.16.0` range, so an override would hand
 # markdownlint a minor it never declared.
 patchedDependencies:
-  '@vvago/vale@3.24.0': patches/@vvago__vale@3.24.0.patch
+  '@vvago/vale@3.25.1': patches/@vvago__vale@3.25.1.patch
   braces@3.0.3: patches/braces@3.0.3.patch
+  picomatch@2.3.2: patches/picomatch@2.3.2.patch
+  picomatch@4.0.7: patches/picomatch@4.0.7.patch
 
 # pnpm audit matches advisories by version, so it can't see a patch. This
-# tells it the braces advisory is handled above. pnpm 11 drops an ignored
-# advisory from the report's `advisories` but still counts it in
+# tells it the braces and picomatch advisories are handled above. pnpm 11
+# drops an ignored advisory from the report's `advisories` but still counts it in
 # `metadata.vulnerabilities`, which is why the `security` built-in counts from
 # `advisories` (src/security.ts). This is the key `pnpm audit --ignore` writes.
 auditConfig:
   ignoreGhsas:
     - GHSA-vfj7-8cjw-p6xm # braces 3.0.3, patched above
+    - GHSA-fc5q-39xc-vjpf # picomatch 2.3.2 and 4.0.7, patched above
