@@ -158,6 +158,33 @@ are deliberately absent here, because triage reads `.check/` artifacts.
 Cursor still gets three scripts: its config is hooks and nothing else, with no
 documented file-path deny list to move `protect` into.
 
+### What `protect` leaves open
+
+`protect` guards the record of what failed, and not the rules that decide it.
+An agent that can't edit the baseline can still turn a check off in
+`checkride.config.json`, or loosen a rule in a tool's own config, and the next
+run is green.
+
+To put the config out of an agent's reach under Claude Code, add a rule of
+your own beside checkride's:
+
+```json
+"permissions": {
+  "deny": ["Edit(**/checkride.config.json)"]
+}
+```
+
+The agent's edits to the file are then refused, including one that adopts a
+check or adds a custom one, so those are yours to make by hand. Cursor has no
+deny list, so the same guard there is a `preToolUse` hook of your own.
+
+A tool's own config is a different trade. An agent edits `tsconfig.json` and
+`cspell.json` in ordinary work, and a deny rule on them costs more than it
+saves. Catch a loosened rule in review instead, with a `CODEOWNERS` line for
+those files. For a check that a pull request switched off, CI can run the pull
+request under the base branch's config, which still names the check:
+[Comparing the base branch's config with the pull request's](./consumers.md#comparing-the-base-branchs-config-with-the-pull-requests).
+
 ### When the gate is too slow
 
 The gate fires on every turn that touched a file, and a full pipeline is minutes

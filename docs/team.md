@@ -40,9 +40,10 @@ the web team's checks alone without asking for them.
 
 Branch protection requires one status check, the workflow's `check` job, and
 the merge queue requires the same one. It runs `checkride --strict`. Without
-`--strict`, a run in which no check ran, such as one whose tools never
-installed, exits 0 having verified nothing; with it, that run exits 2 and the
-job fails. Exit 1 is a red change, and exit 2 is a broken pipeline, so the job
+`--strict`, a run in which no check ran, such as one whose checks all skipped
+themselves, exits 0 having verified nothing; with it, that run exits 2 and the
+job fails. A tool that never installed is not that run: its check fails, and
+the job exits 1. Exit 1 is a red change, and exit 2 is a broken pipeline, so the job
 log already says which kind of failure it is.
 
 ## Changed on each push, everything in the queue

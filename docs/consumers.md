@@ -98,7 +98,12 @@ The checks that remain run your pinned copies wherever your `mise.toml` names
 the tool: each records `pin_source: "override"` and the version it ran. Both
 passes are consumer runs, so neither touches the repo's baseline. A pass that
 skips every check has verified nothing: its summary's `checks_run` is `0`, and
-`--strict` turns it into exit 2 rather than a green.
+`--strict` turns it into exit 2 rather than a green. One check is enough to
+clear `--strict`, and `links` reads the repo as data with no tool, so the
+first pass runs it wherever the config leaves it on. A pass that ran `links`
+alone exits 0. To see how much of the repo a pass covered, compare
+`checks_run` with the number of entries in `checks`, and read each skipped
+entry's `reason`.
 
 `doctor` takes the same flags and runs no check. Before the first pass, it
 lists each check that pass would skip, with the same reason, and for each tool

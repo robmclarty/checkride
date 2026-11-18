@@ -77,7 +77,9 @@ what a change touched.
   CLAUDE.md in AGENTS.md's place.
 - **A guard hook** for Claude Code and Cursor that refuses an agent's edit to
   `checkride.baseline.json` or `.check/`, so it can't make the gate green by
-  rewriting the record.
+  rewriting the record. The config and each tool's own rules stay editable;
+  [what `protect` leaves open](./docs/agents.md#what-protect-leaves-open) says
+  how to watch those.
 - **A stop gate**, opt-in with `checkride hooks add`, that runs the check when
   the agent tries to finish and sends it back while the run is red.
 

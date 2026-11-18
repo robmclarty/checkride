@@ -76,8 +76,9 @@ behind. It's following the policy.
 ## The vacuous-green problem
 
 Here is the most dangerous thing a definition-of-done tool can do: pass without
-having checked anything. Point checkride at a repo whose shape it doesn't
-recognize — no tool configs it detects — and every slot sits out. Nothing runs.
+having checked anything. Take a run in which every check sits out: a config
+that turns `links` off in a repo where no tool is detected, or a selection
+whose checks all skip themselves. Nothing runs.
 The run is, technically, not-failed, so a naive reading is exit 0: "checkride
 says done" on a repo where nothing was verified. An agent stops. A gate opens.
 The floor was never there.
@@ -104,6 +105,17 @@ checkout shouldn't be punished with a hard failure for a repo that isn't set up
 yet; the warning tells them what's happening. The hard line is opt-in, and the
 things that need the hard line are exactly the automated ones that can ask for
 it.
+
+`--strict`'s floor is zero checks, and one check clears it. `links` needs no
+tool and no config, so it runs in every repo that doesn't turn it off. A repo
+whose shape checkride doesn't recognize therefore runs `links` alone, records
+`checks_run: 1`, and exits 0 under `--strict` with its code unchecked. That
+run isn't silent. Its last line reads `only 1 of 8 checks ran, 7 skipped`, and
+the summary lists each skipped check with its reason. A consumer that needs
+more than "something ran" compares `checks_run` with the number of entries in
+`checks`. What keeps a check from dropping out of an adopted repo is its
+config and not `--strict`: `init` names each check there, and a check whose
+tool is missing fails instead of skipping.
 
 A narrow green is the same problem at a smaller scale: a pass over the part
 of the pipeline someone asked for. The summary's `run` names the selection

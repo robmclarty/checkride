@@ -40,10 +40,13 @@ jobs:
 
 Notes:
 
-- **Always pass `--strict` in CI.** Without it, a repo where no tool is
-  detected (say, a misplaced config) exits 0 having verified nothing. With it,
-  that run exits 2 and the job fails. See
-  [the contract](./contract.md#vacuous-green).
+- **Always pass `--strict` in CI.** Without it, a run in which no check ran
+  exits 0 having verified nothing. With it, that run exits 2 and the job
+  fails. One check is enough to clear it, and `links` runs wherever a config
+  doesn't turn it off, so read the run's last line as well: `only 1 of 8
+  checks ran` is a gate that checked almost nothing. See
+  [the contract](./contract.md#vacuous-green) and
+  [Reliability](./reliability.md#the-vacuous-green-problem).
 - **Exit codes:** `0` pass, `1` a check failed, `2` the harness broke or was
   misused — a CI gate can treat 1 as "red build" and 2 as "fix the pipeline".
 - If the repo uses `--changed` locally, still run the **full** (default) set in

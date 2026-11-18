@@ -171,6 +171,47 @@ and its author's departure turns it from a tool into an artifact. checkride is
 that script with the per-repo parts factored out and the promises written
 down and locked.
 
+**A linter runner (Trunk Code Quality, Qlty, MegaLinter).** The closest
+packaged competitors, and for one job the better tool. Each brings the
+linters with it: Trunk and Qlty install and pin them, and MegaLinter ships
+them in a container image, so a repo gets a wide catalogue without setting any
+of it up. Trunk and Qlty also report only the issues a change introduces,
+measured against the upstream branch, with no file to commit. checkride
+installs nothing and runs the copy of each tool the repo already pins, so the
+gate agrees with the editor and with every script that calls the same tool.
+Its baseline is a committed file: a reviewer reads its diff, and a merge can
+conflict in it. What decides between them is scope. A linter runner's verdict
+covers linters, formatters and scanners. checkride's covers the job: the type
+check, the tests, the build and the publish checks sit behind the same exit
+code as the lint. If linting many languages with the least setup is the whole
+need, use a linter runner. If the need is one exit code that means done, a
+linter runner is one of the things that exit code has to include.
+
+**A git hook manager (pre-commit, lefthook, hk).** A hook manager runs
+commands on a git event, most often over the files a commit stages. It answers
+"may this commit land?", and it is the right tool for formatting on commit.
+checkride answers "is the job done?", over the whole repo, with or without a
+commit: an agent's turn may span many commits or none. The two compose, since
+a pre-push hook is a place to call `checkride --changed` from.
+
+**A linter's own suppression file.** ESLint can record today's violations in
+a committed file, fail only on new ones, and prune the entries a fix clears.
+That is the idea behind checkride's [baseline](./baseline.md), native to the
+tool, and where ESLint's findings are a repo's only debt it is enough.
+checkride's baseline keys every tool it has a parser for, across languages, in
+one file, and `baseline diff` shows what a pull request grandfathers in any of
+them. Its cost is those parsers: each is code that follows one tool's output
+format, which a tool's own suppression file never needs.
+
+**The harness's own loop.** Agent harnesses keep an agent working until a
+condition holds. Claude Code's `/goal` has a second model judge the condition
+from the conversation, and a Stop hook runs a command and sends the agent back
+when it fails. Both supply the loop and neither supplies the condition: each
+needs a command whose exit code means done in this repo, which is what
+checkride is. The stop gate that `checkride hooks add` writes is one such
+hook, and the smallest part of the package. A repo that would sooner use
+`/goal`, or a hook of its own, points it at `pnpm check`.
+
 **Doing nothing.** Always an option, and for a solo project with one repo,
 often the right one. The costs checkride addresses are mostly fleet costs and
 delegation costs (CI gates, agents). A single human, in a single repo, who
@@ -291,6 +332,9 @@ rest of this page.
   system: it caches nothing between runs. A very large monorepo whose teams
   need independently gated packages wants a task runner *underneath*
   whatever definition of done it adopts.
+- It installs no tool. A check runs the copy the repo pins and fails when that
+  copy is missing, so a repo that wants its linters chosen, installed and
+  pinned for it wants a linter runner.
 - A solo developer with one repo and no agents gets the least from it — the
   returns are in fleets, gates, and delegation.
 
