@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Upgrading from 0.x: change the pin.** Nothing else moves. Every surface in
+`docs/contract.md` is as the last 0.x release left it, so a repo that is green
+there is green on 1.0.0 with the same config and baseline. In a `package.json`, replace
+the exact version with a caret range, `"checkride": "^1.0.0"`, and install, so
+the lockfile takes the release. In a `mise.toml`, change the version on the
+`github:robmclarty/checkride` or `npm:checkride` entry to `"1.0.0"` and run
+`mise install`. A repo on an older 0.x release reads the entries between its
+version and this one first, since a 0.x minor could break.
+
 ## [0.24.0] - 2026-11-18
 
 ### Added
