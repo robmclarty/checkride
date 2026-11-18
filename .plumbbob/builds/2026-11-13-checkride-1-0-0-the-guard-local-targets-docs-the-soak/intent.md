@@ -254,7 +254,7 @@ one run · one summary · one exit code · target names one flat set
 12. [x] feat(recover): rebuild every shard from history, **done when:** a contract test over two shards shows `recover` rebuilds a clobbered `web` shard from git history and leaves `api`'s file byte-identical, and with a config that can't be read it warns and recovers the root file alone
    - seam: `src/recover.ts`, `src/cli.ts`, `src/config.ts`, `src/__tests__/cli.test.ts`, `src/baseline/history.ts`, `src/baseline/shards.ts`, `src/__tests__/recover.test.ts`, `test/contract/baseline.contract.test.ts`, `docs/contract.md`, `CHANGELOG.md`
    - model: opus
-13. [ ] feat(protect): guard every shard from edits, **done when:** a contract test over two shards shows `protect`, the generated hook script and Cursor's matcher each refuse an edit to `web/checkride.baseline.json` and to a suite's shard, and `doctor`'s baseline row counts every shard and names one no declared target owns
+13. [x] feat(protect): guard every shard from edits, **done when:** a contract test over two shards shows `protect`, the generated hook script and Cursor's matcher each refuse an edit to `web/checkride.baseline.json` and to a suite's shard, and `doctor`'s baseline row counts every shard and names one no declared target owns
    - seam: `src/protect.ts`, `src/agent-setup/scripts.ts`, `src/agent-setup/cursor.ts`, `src/doctor.ts`, `src/__tests__/protect.test.ts`, `src/agent-setup/__tests__/hooks.test.ts`, `src/__tests__/doctor.test.ts`, `test/contract/protect.contract.test.ts`, `test/e2e/hook-scripts.e2e.test.ts`, `docs/contract.md`, `docs/targets.md`, `docs/suites.md`, `CHANGELOG.md`
    - model: opus (the script can't read the config, so it matches the file name at any depth, as Claude's deny rules do)
 

@@ -105,7 +105,7 @@ findings into a committed `checkride.baseline.json` and keeps the slots
 anything new, and prunes entries as you fix them — the debt only ratchets down.
 (A failing slot whose tool has no fingerprint extractor still falls back to a
 disable, and one that can't run yet is left on, as above, for a
-`checkride baseline` once it can.) See [README § Baseline](../README.md#baseline)
+`checkride baseline` once it can.) See [The baseline](./baseline.md)
 for the full mechanics.
 
 If the baseline is ever clobbered — a merge that drops entries, a conflict

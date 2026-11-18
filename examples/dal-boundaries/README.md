@@ -255,5 +255,5 @@ seconds, the database tells you absolutely.
 ## See also
 
 - [`module-boundaries`](https://github.com/robmclarty/checkride/tree/main/examples/module-boundaries) — the same argument for domain boundaries generally
-- [Custom checks](https://github.com/robmclarty/checkride/blob/main/README.md#custom-checks)
+- [Custom checks](https://github.com/robmclarty/checkride/blob/main/docs/configuration.md#custom-checks)
 - [Running in CI](https://github.com/robmclarty/checkride/blob/main/docs/ci.md)

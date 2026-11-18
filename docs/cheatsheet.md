@@ -104,6 +104,35 @@ rewrite your contract file.
 
 Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.
 
+## `checkride agent-setup`
+
+Adds the `check` alias, the AGENTS.md stanza, the `@AGENTS.md` import in
+CLAUDE.md and the agent hooks to a repo already set up. It takes `init`'s
+`--hook`, `--no-hook`, `--remove-hook` and `--harness`, and `--force` to
+refresh a stanza that has local edits, which it refuses otherwise.
+
+## `checkride baseline`
+
+Record today's findings as the committed baseline, or diff it against git. See
+[The baseline](./baseline.md) for what the file is and when to re-record it.
+
+| Command or flag | Effect |
+| ---- | ------ |
+| `checkride baseline` | Capture every check the baseline keys and write `checkride.baseline.json`, each local target's shard beside its config. |
+| `--only <a,b>` / `--skip <a,b>` | Capture just these checks, or every check but these; every other check keeps its entry. |
+| `--versions` | Re-record the copy of each check's tool that ran, adding no key; a check with new keys is left for `checkride baseline`. |
+| `checkride baseline diff [<ref>]` | List the keys the working tree adds, drops or recounts against `<ref>`'s copy (default `HEAD`); `--json` for JSON. |
+| `--fail-on-added` | With `diff`: exit 1 on a key added or a count grown, the CI guard. |
+
+## `checkride gate`, `protect`, `triage` and `qa`
+
+| Command | Does |
+| --- | --- |
+| `checkride gate` | Runs the check script as a stop gate, answering a harness's hook protocol. The generated hook scripts invoke it. |
+| `checkride protect` | Decides whether an agent's edit touches a baseline or `.check/`, answering a harness's hook protocol (`--harness cursor`). Cursor's hook invokes it in a repo with no package manager; you don't run it by hand. |
+| `checkride triage [<repo>]` | Runs the gate, then reads `.check/` as a bounded report naming one root cause (`--out <dir>` for another output directory). |
+| `checkride qa [<repo>]` | Reads the quality artifacts a previous run left (`--out <dir>`). |
+
 ## `checkride recover`
 
 Restore `checkride.baseline.json` from git history after a merge dropped or

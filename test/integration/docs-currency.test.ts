@@ -2,12 +2,12 @@
  * Guards on the catalogues the docs publish: the slots, and the rules and test
  * layout a new project is scaffolded with.
  *
- * Four places outside `src/` enumerate the slots: the README's slot table and
- * its opt-in sentence, the cheat sheet's pipeline table, and the config
+ * Four places outside `src/` enumerate the slots: the tools guide's slot table
+ * and its opt-in sentence, the cheat sheet's pipeline table, and the config
  * schema's `checks` description (which an editor renders as autocompletion
  * help). None is read by any tool the pipeline runs, so all four drift
  * silently — and all four had: adding `prose` was the fifth slot to land since
- * the README's opt-in sentence was last updated, and it was still missing
+ * the opt-in sentence, then in the README, was last updated, and it was still missing
  * `dupes`, `health`, and the whole publish-ready bundle.
  *
  * Currency is asserted in the direction that matches each surface. A *table*
@@ -27,16 +27,23 @@
  * `docs/targets.md` lists the target packs, the markers that pick an implicit
  * pack, and the slots that run once for the whole repo. Each is held to
  * `PACKS` and `SLOTS` exactly, since a row that lags misdocuments a tool and a
- * stale one names a tool no run spawns. The README's slot table carries each
- * slot's scope, held to `SLOTS` the same way.
+ * stale one names a tool no run spawns. The tools guide's slot table carries
+ * each slot's scope, held to `SLOTS` the same way.
+ *
+ * The README's reference sections moved to pages under `docs/`, and a link to
+ * a README heading that moved is dead in a way the `links` check can't see:
+ * it drops the `#fragment` before it tests a link, and stays that way, since
+ * checking fragments would turn green consumer repos red. So every link to
+ * `README.md#…` from `docs/`, `examples/` and the fixtures, relative or by its
+ * GitHub URL, must name a heading the README has.
  *
  * Sibling guards: `./conventions.test.ts` (AGENTS.md's claims about the tree),
  * `./dogfood-config.test.ts` (this repo's config still matches the registry),
  * `./site.test.ts` (the same currency rule for `site/*.html`).
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
@@ -49,6 +56,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts: string[]): string => readFileSync(join(ROOT, ...parts), 'utf8');
 
 const README = read('README.md');
+const TOOLS = read('docs', 'tools.md');
 const CHEATSHEET = read('docs', 'cheatsheet.md');
 const SCHEMA = read('schema', 'checkride.config.schema.json');
 const DEEP_MODULES = read('docs', 'deep-modules.md');
@@ -75,7 +83,7 @@ const hasRow = (md: string, slot: string): boolean =>
 
 /**
  * The comma-separated names inside the parentheses that follow `lead`.
- * Backticks are stripped so one reader handles the README's `` `format` ``
+ * Backticks are stripped so one reader handles the tools guide's `` `format` ``
  * style and the schema description's bare `format`.
  */
 function enumeratedAfter(text: string, lead: string): string[] {
@@ -138,7 +146,7 @@ function testTree(md: string): string[] {
 
 describe('slot tables list every catalogue slot', () => {
   for (const [label, md] of [
-    ['README.md', README],
+    ['docs/tools.md', TOOLS],
     ['docs/cheatsheet.md', CHEATSHEET],
   ] as const) {
     test(`${label} has a row per slot`, () => {
@@ -149,8 +157,8 @@ describe('slot tables list every catalogue slot', () => {
 });
 
 describe('opt-in enumerations match the registry exactly', () => {
-  test('README names every opt-in slot, and only those', () => {
-    const listed = enumeratedAfter(README, '**Opt-in slots**');
+  test('the tools guide names every opt-in slot, and only those', () => {
+    const listed = enumeratedAfter(TOOLS, '**Opt-in slots**');
     expect(listed.toSorted()).toEqual(optInNames.toSorted());
   });
 
@@ -258,8 +266,78 @@ describe('docs/targets.md matches PACKS', () => {
 });
 
 describe('the scope and pack enumerations match the registry', () => {
-  test("README's slot table gives each slot its scope", () => {
-    const rows = tableRows(README, 'Slot', 'Scope').map(([slot = '', scope = '']) => [backticked(slot)[0], scope]);
+  test("the tools guide's slot table gives each slot its scope", () => {
+    const rows = tableRows(TOOLS, 'Slot', 'Scope').map(([slot = '', scope = '']) => [backticked(slot)[0], scope]);
     expect(rows).toEqual(SLOTS.map((s) => [s.name, s.scope]));
+  });
+});
+
+/** GitHub's anchor for a heading: lower-cased, punctuation dropped, spaces to hyphens. */
+const slug = (heading: string): string =>
+  heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+
+/** Every anchor a markdown file's headings give it, fenced blocks skipped, repeats numbered as GitHub numbers them. */
+function anchors(md: string): Set<string> {
+  const found = new Set<string>();
+  const repeats = new Map<string, number>();
+  let fenced = false;
+  for (const line of md.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    const heading = fenced ? undefined : /^#{1,6}\s+(.+?)\s*$/.exec(line)?.[1];
+    if (heading === undefined) continue;
+    const base = slug(heading);
+    const n = repeats.get(base) ?? 0;
+    repeats.set(base, n + 1);
+    found.add(n === 0 ? base : `${base}-${n}`);
+  }
+  return found;
+}
+
+/** The markdown files under a directory of the repo, past every `node_modules`. */
+function markdownUnder(dir: string): string[] {
+  return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : markdownUnder(path);
+    return entry.name.endsWith('.md') ? [path] : [];
+  });
+}
+
+const README_URL = /^https:\/\/github\.com\/robmclarty\/checkride\/blob\/[^/]+\/README\.md$/;
+
+/** The fragments of the links in `file` that land on the repo's own README. */
+function readmeFragments(file: string): string[] {
+  const md = read(file);
+  return [...md.matchAll(/\]\(([^)\s]+)#([^)\s]+)\)/g)].flatMap(([, target = '', fragment = '']) => {
+    const local = !/^[a-z]+:/i.test(target) && resolve(ROOT, dirname(file), target) === join(ROOT, 'README.md');
+    return local || README_URL.test(target) ? [fragment] : [];
+  });
+}
+
+describe('links into the README name a heading it has', () => {
+  const headings = anchors(README);
+  const files = ['docs', 'examples', join('test', 'fixtures')].flatMap(markdownUnder);
+  const links = files.flatMap((file) => readmeFragments(file).map((fragment) => `${file}#${fragment}`));
+
+  test('the links it reads are there to read', () => {
+    expect(links.length).toBeGreaterThan(0);
+  });
+
+  test('every README fragment is a heading the README has', () => {
+    const dead = links.filter((link) => !headings.has(link.slice(link.indexOf('#') + 1)));
+    expect(dead, `links to README headings that are gone: ${dead.join(', ')}`).toEqual([]);
+  });
+});
+
+describe("the CLI help's doc links name a page the repo has", () => {
+  test('every blob/main URL in src/cli.ts is a file', () => {
+    const paths = [...read('src', 'cli.ts').matchAll(/github\.com\/robmclarty\/checkride\/blob\/main\/([^\s`#]+)/g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(paths).toContain('docs/baseline.md');
+    expect(paths.filter((path) => !existsSync(join(ROOT, path)))).toEqual([]);
   });
 });

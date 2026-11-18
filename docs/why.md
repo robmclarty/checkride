@@ -257,13 +257,13 @@ one exit code — gates the whole repo. `checkride init` proposes the targets a
 repo's files suggest, and `unclaimed` fails the run when code sits outside
 every target, so a new service can't slip in unchecked. A repo with no
 `package.json` at all runs checkride through mise. Anything no pack ships
-still fits a [custom check](../README.md#custom-checks), under the same
+still fits a [custom check](./configuration.md#custom-checks), under the same
 contract: exit-code taxonomy, timeouts, atomic artifacts, the summary schema
 and the agent contract. [A polyglot repo, end to end](./polyglot.md) shows the
 whole adoption on a repo of that shape, with the output at each step.
 
 **"Adopting it means fixing years of debt first."**
-No — this is exactly what the [baseline](../README.md#baseline) exists for.
+No — this is exactly what the [baseline](./baseline.md) exists for.
 `checkride init --baseline` grandfathers today's findings so the repo starts
 green once its tools are installed, while new findings fail immediately and
 fixed ones are ratcheted out of the baseline permanently. Adoption cost is an afternoon; the debt is paid

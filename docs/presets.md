@@ -9,8 +9,8 @@ all use the same tools.
 It elaborates one bullet from [Why checkride](./why.md) — *"org-wide policy
 without org-wide bureaucracy"* — into an operating procedure. For the field-level
 mechanics of the two features it leans on, see
-[Sharing presets with `extends`](../README.md#sharing-presets-with-extends) and
-[Gating a custom check with `detect`](../README.md#gating-a-custom-check-with-detect)
+[Sharing presets with `extends`](./configuration.md#sharing-presets-with-extends) and
+[Gating a custom check with `detect`](./configuration.md#gating-a-custom-check-with-detect)
 in the root README; this doc assumes them and focuses on the workflow.
 
 ## The shape of it
@@ -210,9 +210,9 @@ signal to change the preset instead.
 
 ## See also
 
-- [Sharing presets with `extends`](../README.md#sharing-presets-with-extends) —
+- [Sharing presets with `extends`](./configuration.md#sharing-presets-with-extends) —
   the merge semantics and resolution rules.
-- [Gating a custom check with `detect`](../README.md#gating-a-custom-check-with-detect)
+- [Gating a custom check with `detect`](./configuration.md#gating-a-custom-check-with-detect)
   — the field reference.
 - [Running in CI](./ci.md) — the `--strict` gate and the baseline ratchet the
   rollout relies on.

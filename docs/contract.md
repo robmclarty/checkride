@@ -53,6 +53,123 @@ distinguishable by every consumer:
   per-user launcher cache, so the verdict follows the committed lockfile
   instead of varying by machine — see [tools.md](tools.md#package-managers).
 
+## The `.check/` directory
+
+Every run writes to `.check/`, or to the directory `--out` names (a named
+suite's run writes to `.check/suites/<name>/`). This section walks what the
+directory holds and how to read a red run; the sections after it are the
+promises, field by field. The summary shape is published as a JSON Schema at
+[`schema/checkride.summary.schema.json`](../schema/checkride.summary.schema.json);
+fields are additive-only under a given `schema_version`.
+
+- `summary.json` — the aggregate report:
+
+  ```jsonc
+  {
+    "schema_version": 1,
+    "timestamp": "…",
+    "ok": true,
+    "checks_run": 8, // checks that actually executed
+    "total_duration_ms": 4200,
+    "run": { "partial": false }, // the flags given, and whether they narrowed the run
+    "git": { "head": "…", "dirty": false }, // the commit the checks read, in a git work tree
+    "checks": [
+      { "name": "lint", "adapter": "oxlint", "description": "…",
+        "ok": true, "exit_code": 0, "duration_ms": 470, "output_file": "lint.json",
+        "origin": "detected", "detected_by": ".oxlintrc.json", // why it ran
+        "argv": ["pnpm", "…", "exec", "oxlint", "--format=json"], // what it spawned
+        "pin_source": "js-lockfile", "tool_version": "1.87.0" } // which copy ran
+    ]
+  }
+  ```
+
+  A check that sat out carries `skipped: true` and a `reason`, and a check
+  refused before its tool spawned (a tool the project never installed, say)
+  fails with its `reason`. With [targets](./targets.md), the summary
+  lists them under `targets`, and each target's check is named
+  `<target>:<slot>` (`api:lint`).
+
+  `ok: true` with `checks_run: 0` means **nothing was verified**: a
+  [vacuous green](#vacuous-green), which `--strict` turns into exit 2.
+
+- `<slot>.json` — the raw tool JSON when stdout parses as JSON, or
+  `<slot>.jsonl` for a tool that prints JSON lines, such as `go test -json`;
+  otherwise `<slot>.stdout.txt` / `<slot>.stderr.txt`. A target's checks write
+  the same files under `.check/<target>/`. Tools that write their own files
+  (vitest `--outputFile`, stryker) keep doing so.
+
+When a [baseline](./baseline.md) masks a slot's findings, that check gains an additive
+`"baselined": <n>` field counting the grandfathered findings; it is absent on
+runs with no baseline, so `schema_version` is unchanged. A check that fails on
+findings the baseline doesn't grandfather gains `"new_count": <n>` and `"new"`,
+the first 50 of their keys, so a reader can tell what failed it from the debt
+it carries.
+
+- `digest.md` — written only under `--digest`: a **token-bounded** Markdown
+  excerpt of the *failing* slots, so an agent working through a big red repo
+  reads a capped index instead of every raw file. Each section lists the first
+  findings (reusing the baseline fingerprint extractors, or a tail of raw text
+  for slots without one) and links the authoritative `.check/<slot>.json`, which
+  is never modified. A check a baseline masked lists the findings it didn't
+  grandfather, and counts the rest; a `go test` check lists its failing tests,
+  with what each printed, and any still running when a timeout stopped it. The bound: **ten findings per slot, 8 kB overall** —
+  roughly two thousand tokens; past the cap, remaining failing slots are named
+  but not rendered, and a first section longer than the cap on its own is cut
+  where it runs out. It **truncates, never normalizes**; a green run leaves no
+  digest (any stale one is removed), so its presence always means "this run
+  failed". A red run prints the same text on stderr, last, below the `report:`
+  and `digest:` lines and any warning or `hint:` beneath them, so an agent
+  reads what failed in the run's own output. The report never prints it on
+  stdout, so the machine-output split holds, but the summary carries the same
+  text as `digest`, so a `--json` run, which prints no report, hands it over
+  inside the JSON on stdout.
+
+### Reading a red run
+
+Start from the run's own lines. Beneath each red check's
+status line, the run says why it failed when the check says, then what it
+found, then the file that holds all of its output:
+
+```text
+  ✘ lint         40ms  Oxlint, type-aware with oxlint-tsgolint  [config]
+           src/a.ts:3:7  Variable 'x' is declared but never used.  [eslint(no-unused-vars)]
+           src/b.ts:12:9  Expected === and instead saw ==  [eslint(eqeqeq)]
+           full output: .check/lint.json
+  ✘ deploy        8ms  Custom deploy check  [custom]
+           stderr:
+             error: service "api" has no healthcheck
+               at manifests/api.yaml:14
+           stdout:
+             loaded 3 services
+           full output: .check/deploy.stdout.txt, .check/deploy.stderr.txt
+```
+
+What it found is the first of these that applies: the findings a baseline
+didn't grandfather, by key; a `go test` run's failing tests, then up to eight
+of the lines they printed; a vitest run's failing tests, up to four, each
+with the first line of its error beneath it, as
+`src/sum.test.ts > sum > adds` then `AssertionError: expected 3 to be 4`,
+then `… and N more`; for a tool checkride parses, up to five of the
+findings that can fail the check, each as `path:line:col`, its message and
+its rule, then `… and N more`; and for any other check, a custom `command`
+among them, the last eight lines it printed that aren't blank. Those come
+from whichever stream holds any. When both do, the run shows both, each
+under its name, four lines each, and either takes what the other leaves
+unused, since nothing says which stream a tool reports on. Each line is
+printed without its colour codes and cut at 200 characters, and a carriage
+return counts as a line break. A JSON report is never shown as text: a check
+that failed with a report checkride reads no finding in says so in one line.
+A check whose reason line is the whole cause, one that timed out or was
+refused before its tool ran, prints no excerpt beneath it. The `full output:`
+line names the file to open for the rest, both files where it showed both
+streams, under `<target>/` for a target's check and in a named suite's own
+directory. A `--json` run prints none of this, and the summary doesn't carry
+it: these lines are the human report, and a consumer that parses reads the
+summary and the raw files instead. Then read `summary.json` to find the
+failing slot, and that slot's raw output for structured diagnostics. On a
+large repo, run with `--digest` for a capped starting point, printed below
+the report and kept in `digest.md`.
+
 ## `.check/summary.json`
 
 The aggregate report every run writes. Its shape is versioned by
@@ -401,7 +518,7 @@ beside `checkride.config.json`, and every run reads to subtract grandfathered
 findings. Its shape is versioned by its own `schema_version` (currently `1`,
 independent of the summary's) and published as a JSON Schema at
 [`schema/checkride.baseline.schema.json`](../schema/checkride.baseline.schema.json),
-which ships in the npm package. [The README](../README.md#baseline) explains
+which ships in the npm package. [The baseline](./baseline.md) explains
 what the file is for; this section names what a consumer may rely on.
 
 ```jsonc

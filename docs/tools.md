@@ -16,6 +16,120 @@ The tooling has two layers:
 1. **System prerequisites** — installed outside the project, once per machine.
 2. **Slot tools** — installed into the project with pnpm.
 
+## Slots and adapters
+
+A **slot** is a role in the pipeline (order matters — cheapest first). An
+**adapter** is a concrete tool that fills a slot. Each slot has one blessed
+default; alternates are wired so checkride can run them, but `init` only
+generates config for the blessed default. A slot's **scope** says what it
+checks: a `target` slot checks one language's code, once for each target
+whose pack fills it, and a `repo` slot checks the repo as a whole, once. The
+tools below are the ts and repo packs'; the bash, go, rust, python, terraform and
+odin packs fill the target slots with their own (see
+[Packs and pins](./packs.md)).
+
+| Slot       | Scope  | Role                                   | Blessed default     | Alternates       |
+| ---------- | ------ | -------------------------------------- | ------------------- | ---------------- |
+| `types`    | target | Type checking                          | `tsc --build`       | —                |
+| `format`   | target | Formatting (opt-in)                    | `prettier`          | `biome-format`   |
+| `lint`     | target | Linting                                | `oxlint`            | `biome`, `eslint`|
+| `struct`   | repo   | Structural rules (deep modules by default) | `ast-grep`      | —                |
+| `dead`     | target | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
+| `dupes`    | target | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
+| `health`   | target | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
+| `test`     | target | Tests + coverage                       | `vitest`            | `jest`           |
+| `docs`     | repo   | Markdown lint                          | `markdownlint-cli2` | `rumdl`          |
+| `links`    | repo   | Relative markdown links resolve        | built-in            | —                |
+| `spell`    | repo   | Spelling                               | `cspell`            | `typos`          |
+| `prose`    | repo   | Writing style (opt-in)                 | `vale`              | —                |
+| `mutation` | target | Mutation testing (opt-in)              | `stryker`           | —                |
+| `security` | target | Dependency audit (opt-in)              | `pnpm audit`        | —                |
+| `build`    | target | Runs the consumer's build script (opt-in) | `<pm> run build` | —                |
+| `publint`  | target | Package publishing lint (opt-in)       | `publint`           | —                |
+| `attw`     | target | Type resolution across module systems (opt-in) | `attw --pack`| —                |
+| `pack`     | target | Tarball ships the right files (opt-in) | built-in            | —                |
+| `smoke`    | target | Built package imports cleanly (opt-in) | built-in            | —                |
+| `snippets` | target | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
+| `unclaimed` | repo   | Every toolchain marker sits in a target (with `targets`) | built-in | — |
+| `schema`   | repo   | Data files satisfy their JSON Schemas (with `schemas`) | built-in | — |
+
+Most of these tools you already know. The one unfamiliar name, `fallow`, is a
+Rust-native codebase-analysis tool covering dead code, duplication, and
+complexity; [Slot tools](#slot-tools) below covers it and every other
+adapter of the ts and repo packs.
+
+Zero-config: for each slot, checkride runs the first adapter whose config file
+exists, and skips slots with no detected tool. The Node-free alternates
+`rumdl` and `typos` are detected only where a tool can come from `mise.toml`
+or `PATH`: a repo that declares `targets`, or one whose root marks another
+pack. A repo checked as ts runs its tools through its package manager alone,
+which can't install them. The core has **no runtime dependency** on any
+checked tool: it spawns each one through its pack's pin chain (the project's
+package manager, a language's own pin file such as `go.mod`, a `mise.toml`,
+then `PATH`), so the project owns the pinned tool versions.
+
+**Opt-in slots** (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `build`,
+`publint`, `attw`, `pack`, `smoke`, `snippets`) stay out of the
+default run so adopting checkride — or bumping its version — never turns a repo red on a
+check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming
+it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
+run. `checkride fix` then runs its write form (for example `prettier --write`) alongside the
+other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
+
+`unclaimed` isn't opt-in but **inactive** until the config declares `targets`:
+then it fails when a toolchain marker, such as a `package.json` or a
+`go.mod`, sits outside every target of its language, a directory of code no
+check reads. Without `targets` it stays out of
+every run, `--all` included, and naming it with `--only unclaimed` records it
+as skipped with the reason.
+
+`schema` is inactive the same way, until the config holds a `schemas` rule.
+Then it validates the files each rule names (JSON, JSONC, YAML, or a Markdown
+file's YAML frontmatter) against a JSON Schema: one the repo keeps, or one of
+the three that ship, `checkride:agent-skill`, `checkride:checkride-config`
+and `checkride:checkride-local`.
+A rule that matches no file fails, and so does a file that doesn't parse.
+[Configuration § Validate data files](./configuration.md#validate-data-files)
+shows the config, and [the `schema` slot](#the-schema-slot-data-files-against-json-schemas)
+below covers the rest.
+
+To configure an opt-in slot without opting it in, or to hold a default slot
+back to the full sweep, give its entry `"optIn"`: see
+[Configure a slot without opting it in](#configure-a-slot-without-opting-it-in).
+`publint` and `attw`, with `build`, `pack`, `smoke` and `snippets`, are the
+[publish-ready bundle](#the-publish-ready-bundle), for a package you ship to
+npm.
+
+### Language packs
+
+A **pack** fills the target slots for one language: its tools, resolved
+through the pins the repo already keeps, and an environment that keeps its
+checks offline. A repo whose root marks one language runs that pack with no
+config. A repo with several, or one language in several places, declares
+[targets](./targets.md), and each target runs its pack's checks from its
+own root, as `web:lint` or `api:test`. Each pack's blessed tool per slot, with
+the alternates and every argv in [Packs and pins](./packs.md):
+
+| Pack | Root marker | `types` | `lint` | `dead` | `test` | Opt-in | Pinned by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `ts` | `package.json`, `tsconfig.json` | tsc | oxlint | fallow | vitest | prettier, fallow's dupes and health, stryker, pnpm audit, the publish bundle | the lockfile |
+| `go` | `go.mod`, `go.work` | go build | golangci-lint | deadcode | go test | gofmt, govulncheck | `go.mod` tool directives, then `mise.toml`, then `PATH` |
+| `rust` | `Cargo.toml` | cargo check | clippy | cargo-machete | nextest | rustfmt, doctests, cargo-deny, cargo-mutants | `rust-toolchain.toml`, then `mise.toml`, then `PATH` |
+| `python` | `pyproject.toml`, `setup.cfg`, `setup.py` | mypy | ruff | — | pytest | ruff format | `uv.lock`, then `mise.toml`, then `PATH` |
+| `terraform` | `.terraform.lock.hcl`, `*.tf` | terraform validate | tflint | — | — | terraform fmt, trivy | `.terraform-version` or `.opentofu-version`, then `mise.toml`, then `PATH` |
+| `odin` | `*.odin` | odin check | odin check `-vet` | odin check `-vet-unused-procedures` | odin test | — | `mise.toml`, then `PATH` |
+| `bash` | none: a target's shell files | — | shellcheck | — | — | shfmt | `mise.toml`, then `PATH` |
+
+The repo pack's slots (`struct`, `docs`, `links`, `spell`, `prose` and
+`unclaimed`) run once for the whole repo, whatever languages it holds, with
+the tools in the table above. A check never downloads anything: Go, cargo, pip
+and uv run with their downloads switched off, so the repo fetches first
+(`go mod download`, `cargo fetch`, `uv sync`, `terraform init -backend=false`),
+and a check that needs the step names it. Each check records the copy that ran
+as `pin_source` and `tool_version` in the summary, a go check the Go release
+it ran on as `toolchain_version`, and `requirePins: true` fails a check whose
+tool only `PATH` provides.
+
 ## System prerequisites
 
 | Tool | Minimum | Install |
@@ -57,6 +171,16 @@ a workspace package that declares neither runs under the root's. `doctor`
 prints the detected manager at the top of its report and verifies that
 manager is on your PATH (pnpm keeps its `>=9` floor; the others are
 presence-only for now).
+
+Every command checkride generates is spelled for that manager: the `check`
+alias the stop gate runs, the AGENTS.md stanza, and each adapter's canonical
+`pnpm exec <tool>`, which becomes the exec form in the table. `init` and
+`agent-setup` report the manager under their headline. Two of the ts pack's
+slots are manager-specific: its opt-in `security` slot is `pnpm audit` (pnpm
+only), and the `pack` slot's dry-run speaks pnpm's and npm's `pack --json`
+(pnpm or npm); each reports itself **unavailable** elsewhere rather than
+failing. The go, rust and terraform packs fill `security` with govulncheck,
+cargo-deny and trivy.
 
 **A check never fetches a tool from the registry.** `npx` and `bunx` will
 otherwise download a missing package and run it — and because a check is
@@ -701,7 +825,7 @@ Two details worth knowing:
 
 The slot catalogue covers what most repos share. A genuinely repo-specific
 invariant is a **custom check** — a config entry keyed by a name that isn't a
-built-in slot, running a plain command (see the [README](../README.md#custom-checks)
+built-in slot, running a plain command (see [Configuration](./configuration.md#custom-checks)
 for the config shape).
 
 A worked example: the origin repo (`fascicle`) enforces that every provider SDK
@@ -730,7 +854,7 @@ the whole ecosystem gets it once rather than re-implementing it per repo.
 A custom check's output is read by the parser of the adapter its `name`
 names, and by none when it has no `name`, which records it as
 `custom:<key>`. So a check that runs a tool checkride already parses can join
-the [baseline](../README.md#baseline) by naming that tool. The usual case is a
+the [baseline](./baseline.md) by naming that tool. The usual case is a
 stricter rule set adopted with findings it already has, such as Angular's
 template accessibility rules on a repo whose `lint` slot runs another config:
 

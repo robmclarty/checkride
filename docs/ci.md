@@ -48,7 +48,7 @@ Notes:
   misused — a CI gate can treat 1 as "red build" and 2 as "fix the pipeline".
 - If the repo uses `--changed` locally, still run the **full** (default) set in
   CI: CI is the place the whole pipeline gets observed, which is also what
-  lets a committed baseline [ratchet](../README.md#baseline).
+  lets a committed baseline [ratchet](./baseline.md).
 - **Wave concurrency depends on the runner's core count.** The default pool
   width is `min(4, cores)` when `CI` is set (every provider sets it) and
   `min(4, cores − 1)` locally, where a core is reserved to keep the machine
@@ -92,7 +92,7 @@ stays last. Each finding gets one line:
 
 - **What is annotated** is what the report lists beneath the check's status
   line. For a check whose tool checkride parses, each finding that can fail
-  it, and only the new ones where a [baseline](../README.md#baseline)
+  it, and only the new ones where a [baseline](./baseline.md)
   grandfathers the rest. For a failing vitest or `go test` run, each failing
   test, with the first line of its error. Any other red check, a custom
   `command` or one that timed out, gets one annotation with no file: its
@@ -120,7 +120,7 @@ stays last. Each finding gets one line:
 
 The run takes it and no other command does. A variable set for the whole job
 is safe: `fix`, `doctor`, `baseline` and the rest never read it, and say
-nothing about it. The [stop gate](../README.md#agent-integration) drops the
+nothing about it. The [stop gate](./cheatsheet.md#checkride-gate-protect-triage-and-qa) drops the
 variable from the check it starts, since a hook hands that output to an
 agent, not to GitHub.
 

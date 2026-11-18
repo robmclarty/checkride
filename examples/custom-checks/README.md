@@ -147,5 +147,5 @@ conform to.
 
 ## See also
 
-- [Custom checks reference](https://github.com/robmclarty/checkride/blob/main/README.md#custom-checks)
+- [Custom checks reference](https://github.com/robmclarty/checkride/blob/main/docs/configuration.md#custom-checks)
 - [When to write a custom check](https://github.com/robmclarty/checkride/blob/main/docs/tools.md#when-to-write-a-custom-check)

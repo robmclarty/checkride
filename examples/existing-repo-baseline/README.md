@@ -142,5 +142,5 @@ so treat it as a reviewed change and read the diff in the pull request.
 
 ## See also
 
-- [Baseline reference](https://github.com/robmclarty/checkride/blob/main/README.md#baseline)
+- [Baseline reference](https://github.com/robmclarty/checkride/blob/main/docs/baseline.md)
 - [Getting started](https://github.com/robmclarty/checkride/blob/main/docs/getting-started.md)

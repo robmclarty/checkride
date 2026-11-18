@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 13 — feat(protect): guard every shard from edits
+**Current step:** 14 — docs: move the README's reference sections out
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -36,7 +36,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 10. feat(baseline): capture and re-record every shard
 - ☑ 11. feat(baseline): walk every shard in baseline diff
 - ☑ 12. feat(recover): rebuild every shard from history
-- ☐ 13. feat(protect): guard every shard from edits
+- ☑ 13. feat(protect): guard every shard from edits
 - ☐ 14. docs: move the README's reference sections out
 - ☐ 15. docs(readme): rewrite the README to the happy path
 - ☐ 16. docs(team): write the page for a team merging agent-written code
@@ -55,8 +55,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/packs.md names the TOOLS table six times in prose; with TOOLS off the barrel, reword it as checkride's tool table (step 14's docs move is the natural home)
 - [x] target add, init, hooks, protect, triage and qa do not look above the directory they are typed in (step 7 covered the run, fix, doctor, baseline, recover and gate, as its done-when lists): target add typed in web/ writes targets into the local file, which the next run refuses with exit 2 naming it; D33 says every command that reads the config
 - [x] docs/cheatsheet.md, README.md and site/ say nothing yet of local targets, include, or running from inside a target; docs/targets.md and docs/contract.md hold all three (the docs range, steps 14 to 17, is the natural home)
-- [ ] two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100
-- [ ] src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147)
+- [x] two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100
+- [x] src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -81,6 +81,9 @@ Harvest results this boundary:
 - 2026-11-14, at range 3 of 7's stop: 2 parked ideas, classified.
 - **tangent**: park 3 · target add, init, hooks, protect, triage and qa do not look above the directory they are typed in (step 7 covered the run, fix, doctor, baseline, recover and gate, as its done-when lists): target add typed in web/ writes targets into the local file, which the next run refuses with exit 2 naming it; D33 says every command that reads the config → it fails loudly and blocks none of the shard steps
 - **tangent**: park 4 · docs/cheatsheet.md, README.md and site/ say nothing yet of local targets, include, or running from inside a target; docs/targets.md and docs/contract.md hold all three (the docs range, steps 14 to 17, is the natural home) → the docs range, steps 14 to 17, rewrites these pages anyway
+- 2026-11-17, at range 4 of 7's stop: 2 parked ideas, classified.
+- **tangent**: park 5 · two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100 → a test-only flake that needs a loaded machine to show, and no shipped behaviour is wrong
+- **tangent**: park 6 · src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147) → the 750ms budget is the product's on purpose, and only the test's real git misses it under load
 
 ## Log
 
@@ -418,3 +421,99 @@ folder, so it rides the branch into the PR.)*
 - 2026-11-14 — step 10 checkpointed · a658f1681 — feat(baseline): capture and re-record every shard (1 drift, 12m)
 - 2026-11-14 — step 11 checkpointed · 61cdbd2da — feat(baseline): walk every shard in baseline diff (1 drift, 13m)
 - 2026-11-14 — step 12 checkpointed · 0bcb35c0d — feat(recover): rebuild every shard from history (1 drift, 9m)
+- 2026-11-14 — step 13 checkpointed · 518b3558d — feat(protect): guard every shard from edits (1 drift, 11m)
+- 2026-11-17 — range 4 of 7's stop recorded — run the merge-queue proof in runciter's sandbox repo from the hand-over, record the result in runciter's scheduler note, then release 0.24.0 with `/version minor`
+
+  **Summary**: A local target now keeps its baseline keys in `<root>/checkride.baseline.json`, and every reader and writer covers it: the run's mask, the ratchet, `baseline`, `baseline --versions`, `baseline diff`, `recover`, the protect hook and `doctor`. A repo with one baseline file takes the same code paths and behaves as it did, which the untouched single-file tests hold. Two things to know before the release: `package.json` still says 0.22.0 and the changelog's Unreleased section holds the 0.23.0 entries too, so `/version minor` will cut 0.23.0 and not 0.24.0; and the full `pnpm test:e2e` and a mutation run were not run, since the machine sat at a load average above 100 from other projects, only four e2e files and the local-targets example.
+
+  1. Steps 9 to 13 each staged a file or two outside their seam, all for one reason
+  2. Five calls the decisions left open, each made the conservative way
+  3. What changes for a repo already on 0.22, each under the changelog's Contract heading
+  4. What was verified, and what was not
+  5. The version the release will cut is 0.23.0
+
+  **Readout**:
+
+  ```text
+  steps        6 of 6 landed
+               - 8 286d754 · 9 f6297db · 10 a658f16 · 11 61cdbd2 · 12 0bcb35c
+               - 13 518b355
+  check        green: 19 of 19 checks, 6 landings
+  done-when    met
+  decisions    honored
+               - D10 (baseline-shards), D12 (suites-unchanged)
+               - D22 (shards-in-six), D28 (ratchet-moves-keys)
+               - D37 (shards-move-both-ways), D41 (diff-reads-config)
+               - D47 (mangled-shard), D2 (fail-on-added)
+  constraints  10 of 10 honored
+  seam         strayed: 11 paths outside 5 steps' seams
+               - step 9: src/__tests__/baseline.test.ts and 2 others
+               - step 10: src/baseline/index.ts
+               - step 11: src/__tests__/baseline.test.ts and 2 others
+               - step 12: src/baseline-command.ts, src/baseline/index.ts
+               - step 13: src/baseline/index.ts, src/baseline/shards.ts
+  diff         +2997 -292 across 32 files
+               - CHANGELOG.md +101 -3
+               - docs/consumers.md +6 -0
+               - docs/contract.md +148 -4
+               - docs/suites.md +7 -0
+               - docs/targets.md +36 -0
+               - examples/local-targets/README.md +7 -0
+               - src/__tests__/baseline-history.test.ts +132 -1
+               - and 25 more
+  spent        79 min · 1 red run · 5 drift warnings
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Harvested**: **2** of 6 parked ideas open
+
+  | Park | Why it matters | Lean |
+  | --- | --- | --- |
+  | **P5**: [Padded durations flake two tests](#park-list) | two output comparisons fail when a duration gains a digit under load | tangent: a test-only flake that needs a loaded machine to show, and no shipped behaviour is wrong |
+  | **P6**: [Recover hint test times out](#park-list) | the hint's budget expires before git answers on a loaded machine | tangent: the 750ms budget is the product's on purpose, and only the test's real git misses it under load |
+
+  **Recommendation**: Run the full e2e suite on a quiet machine before the merge-queue proof, then run the proof against this commit and release once with `/version minor`, accepting 0.23.0 as the number. The shard code is green on everything `pnpm check` covers, but the binary, consumer and language-pack e2e files have not seen it, and a release is the one step here that can't be taken back. Cutting 0.23.0 now and 0.24.0 straight after, to match the plan's numbers, would publish a release nobody ran. Both parks are tangents: they are test flakes under load, and neither touches what ships.
+
+  ```sh
+  pnpm test:e2e
+  ```
+
+  **1.** Steps 9 to 13 each staged a file or two outside their seam, all for one reason
+
+  Every step's checkpoint flagged strays. Each is the barrel `src/baseline/index.ts`, which re-exports what `src/baseline/shards.ts` gained, or a caller the step's seam left out:
+
+  - step 9: `src/orchestrator/context.ts` carries the shard read on the run context in place of `baselineState`, and `src/__tests__/baseline.test.ts` follows the read's new `map` field;
+  - step 11: `src/orchestrator/run.ts` hands the step summary the run's shard map, and `src/__tests__/baseline.test.ts` swaps the flag in the case that expected `baseline diff --config` to be refused;
+  - step 12: `src/baseline-command.ts` changed because `targetsForBaseline` in `src/config.ts` became one function for `baseline diff` and `recover`, after fallow flagged the two copies as a clone;
+  - step 13: `src/baseline/shards.ts` gained two small helpers `doctor` calls.
+
+  Nothing reached past the baseline's own surface. Two seam files needed no change and got none: `src/target-files.ts` (step 10), since `target add` converts a repo with no target, and `test/e2e/hook-scripts.e2e.test.ts` (step 13), which has no protect case to extend.
+
+  **2.** Five calls the decisions left open, each made the conservative way
+
+  - **A capture refuses an unreadable file rather than skipping it.** D47 says no `checkride baseline` writes over a file it couldn't parse. With the baseline spread over more than one file, `baseline`, `baseline --only`, `baseline --skip` and `baseline --versions` are exit 2 naming the file before anything runs. The other reading, write the rest and warn, would exit 0 on a capture that recorded nothing for one target. A repo whose baseline is the root file alone keeps 0.23's behaviour, where a full capture replaces a mangled file.
+  - **`recover` is one list of candidates for the whole baseline.** A commit to any file is a candidate, read as the merged baseline at that commit, and `--pick` spreads the restored keys by owner. Per-file candidate lists would have needed a new flag and broken `--pick <n>`.
+  - **An entry in a target's file for another target's check is never read, moved or dropped.** It masks nothing, and a rewrite of the file keeps it. Dropping it would be a writer deleting what it doesn't understand.
+  - **A baseline file at a non-local target's root that holds none of that target's checks is never removed.** D37 has the ratchet delete a shard left behind. A nested repo's own baseline at a target's root looks the same on disk, so the file goes only once it held that target's keys and they have moved to the root file.
+  - **`doctor` exempts a nested repo's baseline from the unowned list.** A file of the baseline's name at no declared target's root is named, unless a config sits beside it with no top-level `lang`, which only a local target's file sets. This repo's three example baselines are the case, and the search runs only where targets are declared.
+
+  Step 8's done-when says a repo with no local target reads exactly the one file it reads today. It does, with one exception D37 asks for: a declared target that isn't local and has a baseline file at its root now has that file read, for that target's checks alone.
+
+  **3.** What changes for a repo already on 0.22, each under the changelog's Contract heading
+
+  - Under Cursor, `checkride protect` and the generated hook script deny a write to a file named like the baseline at any depth inside the project. A write to `fixtures/checkride.baseline.json` was allowed and is now denied, as it always was under Claude Code's `Edit(**/checkride.baseline.json)`. A generated script needs `checkride agent-setup` to pick it up.
+  - `baseline diff` and `recover` read a config, take `--config`, and read `CHECKRIDE_CONFIG`. `baseline diff --config` used to be an unknown option. A CI job that sets `CHECKRIDE_CONFIG` to a file that is missing now gets exit 2 from both.
+  - stderr's `baseline: ratcheted …` and `baseline: wrote …` lines come once per file written. A repo with one file sees the same single line.
+
+  **4.** What was verified, and what was not
+
+  `pnpm check` was green at each of the six checkpoints. The new behaviour has 150 or so tests: unit tests for every function in `shards.ts`, orchestrator tests over real files, and contract tests in `test/contract/baseline.contract.test.ts`, `protect.contract.test.ts` and `step-summary.contract.test.ts`, the `baseline diff` and `recover` ones over real git repos.
+
+  Not run: the full `pnpm test:e2e`, and any mutation run. Run instead, before step 13 landed: `existing`, `out` and `invariance` e2e files (green), `hook-scripts` (skips itself here), and the `local-targets` example (green). `examples/local-targets` gained a README paragraph and no baseline of its own.
+
+  Three tests failed once each under the load and passed on a rerun, with and without the change: the two in P5 and the one in P6. One checkpoint (step 9) was refused on them and landed on the retry.
+
+  **5.** The version the release will cut is 0.23.0
+
+  Range 2's stop was to release 0.23.0, and it never ran: the last tag is `v0.22.0`, `package.json` says 0.22.0, and `[Unreleased]` in `CHANGELOG.md` holds the guard, `--summary github`, the barrel trim and the Cursor hook fix beside everything from steps 4 to 13. `/version minor` will bump to 0.23.0 and file all of it there. The plan's later numbers (0.25.0 for the docs, the soak on "the last release before step 19") then each read one lower, and D32 (soak-clock) names no number, so nothing in the plan breaks.

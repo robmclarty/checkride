@@ -18,8 +18,15 @@ Start here:
   `package.json`.
 - **[Cheat sheet](./cheatsheet.md)** — one-screen reference for commands, flags,
   npm-script aliases, and the `.check/` output files.
-- **[Tools and installation](./tools.md)** — what each slot of the ts and repo
-  packs runs, and how to install a missing tool (fallow, ast-grep, oxlint, …)
+- **[Configuration](./configuration.md)** — every key `checkride.config.json`
+  takes: a tool pick per slot, targets and per-pack config, data-file schemas,
+  custom checks and `detect`, presets through `extends`, and timeouts.
+- **[The baseline](./baseline.md)** — grandfathering a repo's findings so day
+  one is green: the file and its keys, the ratchet, a tool whose version
+  moved, reviewing what a change adds with `baseline diff`, and recovering
+  after a bad merge. Read this before adopting checkride on a repo with debt.
+- **[Tools and installation](./tools.md)** — the slots, their adapters and the
+  language packs; what each slot of the ts and repo packs runs, and how to install a missing tool (fallow, ast-grep, oxlint, …)
   when `doctor` reports one as not installed. The other packs' tools are in
   Packs and pins below.
 - **[Targets](./targets.md)** — checking a repo with more than one language,
@@ -60,8 +67,8 @@ Start here:
 - **[Ordering waves in practice](./ordering-in-practice.md)** — a worked
   before/after on a real repo showing what the `order` surface buys: a legible
   schedule, an uncontended heavy check, and a method for tiering your own gate.
-- **[The contract](./contract.md)** — the surfaces consumers may rely on: the
-  exit-code taxonomy, the `summary.json` schema discipline, the baseline file
+- **[The contract](./contract.md)** — what `.check/` holds and how to read a
+  red run, then the surfaces consumers may rely on: the exit-code taxonomy, the `summary.json` schema discipline, the baseline file
   format, the CLI flag set, the programmatic exports, and the pin policy.
 - **[The Claude Code plugin](./plugin.md)** — the two skills bundled in the
   package, `/checkride:check` and `/checkride:qa`: how to install them, what
@@ -79,8 +86,8 @@ Start here:
 
 Deeper background lives in the repository root:
 
-- **[README](../README.md)** — the thesis, the slot/adapter model, and the
-  `.check/` contract.
+- **[README](../README.md)** — the thesis, installing, and a pointer to the
+  page for each part of the reference.
 - **[AGENTS.md](../AGENTS.md)** — the contract coding agents follow in a
   checkride repository.
 - **[CHANGELOG](../CHANGELOG.md)** — release notes.

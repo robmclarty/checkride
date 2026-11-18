@@ -438,7 +438,7 @@ Options:
 Exit codes: 0 listed or applied; 2 usage or environment error (git missing,
 not a git repository, unknown --pick). \`recover\` never exits 1.
 
-Docs: https://github.com/robmclarty/checkride#readme
+Docs: https://github.com/robmclarty/checkride/blob/main/docs/baseline.md
 `;
 
 const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings, or diff them against git
@@ -508,7 +508,7 @@ it ran, keys added or not, and with --fail-on-added 1 when a key was added or
 a count grew; 2 when the ref names no commit, git is missing, or either copy
 can't be parsed.
 
-Docs: https://github.com/robmclarty/checkride#readme
+Docs: https://github.com/robmclarty/checkride/blob/main/docs/baseline.md
 `;
 
 const TARGET_HELP_TEXT = `checkride target — declare the targets a repo is checked as

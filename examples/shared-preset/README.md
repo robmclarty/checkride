@@ -133,4 +133,4 @@ standing down and tries to run `ruff`, which isn't installed — the failure mod
 ## See also
 
 - [Running a fleet with shared presets](https://github.com/robmclarty/checkride/blob/main/docs/presets.md)
-- [Sharing presets with `extends`](https://github.com/robmclarty/checkride/blob/main/README.md#sharing-presets-with-extends)
+- [Sharing presets with `extends`](https://github.com/robmclarty/checkride/blob/main/docs/configuration.md#sharing-presets-with-extends)
