@@ -1,0 +1,33 @@
+{
+  "atis": "0.0.0",
+  "steps": {
+    "18": {
+      "schema_version": 1,
+      "kind": "atis.reach",
+      "head": "614392bebc25e817f76582ad42ab3f59c3134e32",
+      "paths": [
+        "SECURITY.md",
+        "README.md",
+        "docs/contract.md",
+        "package.json"
+      ],
+      "new": [
+        "SECURITY.md"
+      ],
+      "reach": [
+        {
+          "path": "CHANGELOG.md",
+          "by": "cochange",
+          "rate": 0.89,
+          "support": 124,
+          "with": "docs/contract.md"
+        }
+      ],
+      "muted": [
+        "import: atis reads no imports from .json files, so package.json has no import reach",
+        "import: atis reads no imports from .md files, so 2 named files have no import reach",
+        "import: the go producer left its files unread: go list in templates/go/module exited 1: go: errors parsing go.mod:"
+      ]
+    }
+  }
+}

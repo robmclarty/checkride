@@ -158,7 +158,8 @@ run scored 83%.
 [examples/](./examples/) holds runnable repos, each showing one thing, each
 asserted by the end-to-end suite on every push. See [AGENTS.md](./AGENTS.md)
 for the contract agents follow in this repo,
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the release ritual, and
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the release ritual,
+[SECURITY.md](./SECURITY.md) for reporting a security problem, and
 [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## License

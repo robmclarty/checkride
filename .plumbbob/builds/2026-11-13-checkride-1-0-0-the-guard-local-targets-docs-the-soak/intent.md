@@ -269,7 +269,7 @@ one run · one summary · one exit code · target names one flat set
 16. [x] docs(team): write the page for a team merging agent-written code, **done when:** `docs/team.md` walks the web-and-API repo, its workflow runs the baseline guard as its own job outside the required set, and the file is one a check covers
    - seam: `docs/team.md` (new), `examples/local-targets/`, `test/integration/docs-currency.test.ts`, `docs/ci.md`
    - model: opus (the workflow file and its test are [D27 (workflow-cover)](#d27))
-17. [ ] docs: list the docs by job and shrink getting-started, **done when:** `docs/README.md` lists every page under `docs/` beneath one of four jobs, a test proves each page is reachable from it, and `getting-started.md` holds only the ten minutes after the README
+17. [x] docs: list the docs by job and shrink getting-started, **done when:** `docs/README.md` lists every page under `docs/` beneath one of four jobs, a test proves each page is reachable from it, and `getting-started.md` holds only the ten minutes after the README
    - seam: `docs/README.md`, `docs/getting-started.md`, `docs/configuration.md`, `docs/baseline.md`, `docs/distribution.md`, `docs/targets.md`, `docs/ci.md`, `test/integration/docs-currency.test.ts`, `site/docs.html`
    - model: opus
 18. [ ] docs: add SECURITY.md, **done when:** `SECURITY.md` says how to report a problem and that the latest release gets fixes, and it's linked from the README and the contract

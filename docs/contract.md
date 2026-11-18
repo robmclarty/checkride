@@ -2425,6 +2425,9 @@ writes the first, at the exact version that ran it, on a platform a release
 carries a binary for (macOS and glibc Linux, on arm64 and x64), and the
 second, with a `node` beside it, anywhere else. Post-1.0, a caret range is the intended usage.
 
+[SECURITY.md](../SECURITY.md) says how to report a security problem and which
+versions get fixes.
+
 Any change touching a surface in this document must name itself in
 `CHANGELOG.md` under a **Contract** heading in that release's notes — a reader
 scanning release notes must be able to find every contract-relevant change

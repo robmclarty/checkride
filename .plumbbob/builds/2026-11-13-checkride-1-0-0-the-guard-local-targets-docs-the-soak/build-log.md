@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 17 — docs: list the docs by job and shrink getting-started
+**Current step:** 18 — docs: add SECURITY.md
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -40,7 +40,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 14. docs: move the README's reference sections out
 - ☑ 15. docs(readme): rewrite the README to the happy path
 - ☑ 16. docs(team): write the page for a team merging agent-written code
-- ☐ 17. docs: list the docs by job and shrink getting-started
+- ☑ 17. docs: list the docs by job and shrink getting-started
 - ☐ 18. docs: add SECURITY.md
 - ☐ 19. feat(init): write a caret pin from 1.0.0 on
 - ☐ 20. docs(contract): rewrite the pin policy and promise what a minor may do
@@ -575,3 +575,48 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-11-18 — step 15 checkpointed · cc96b35e3 — docs(readme): rewrite the README to the happy path (7m)
 - 2026-11-18 — step 16 checkpointed · 5a1ab303e — docs(team): write the page for a team merging agent-written code (5m)
+- 2026-11-18 — step 17 checkpointed · 614392beb — docs: list the docs by job and shrink getting-started (1 drift, 7m)
+
+  **Summary**: `getting-started.md` goes from 865 lines to 182 and now covers only the ten minutes after the README: install, what `init` wrote, the first run, a red run, the daily loop, and a pointer to the stop gate. `docs/README.md` lists all 27 pages under Start, Adopt on a team, Run in CI and Reference, and a new test fails if any page under `docs/` is missing from those sections. The roughly 425 lines on agents and the stop gate had no page in the seam to go to, so they now sit in a new `docs/agents.md`. That page, and a one-line link fix in `docs/cursor.md`, are outside the seam, and that's why this step stopped here.
+
+  1. The agents half moved to a new page outside the seam
+  2. The other moves stayed inside the seam
+  3. The index test checks every page, the design records included
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    bent: D17 (docs-by-job)
+               → the agents half needed a page the seam lacks; see 1
+  constraints  10 of 10 honored
+  seam         strayed: 2 paths outside the seam
+               - docs/cursor.md
+               - docs/agents.md
+  diff         +803 -852 across 7 files
+               - docs/README.md +76 -88
+               - docs/agents.md +426 -0
+               - docs/configuration.md +45 -0
+               - docs/cursor.md +1 -1
+               - docs/distribution.md +145 -0
+               - docs/getting-started.md +78 -761
+               - test/integration/docs-currency.test.ts +32 -2
+  spent        7 min · 1 turn · 52s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (decisions bent)
+
+  **Recommendation**: Approve `docs/agents.md` as the agents page and land step 17 as it stands. The gate material is reference that a reader needs after the first ten minutes, and splitting it across `plugin.md` and `cursor.md` would scatter one topic over two pages that are each about something else. If you'd rather the seam had held, the other option is to keep a trimmed "Working with agents" in getting-started, and that breaks the ten-minute done-when.
+
+  **1.** The agents half moved to a new page outside the seam
+
+  D17 says the rest of getting-started "moves to the pages that own each topic", but no page in step 17's seam owns the agent hooks. The material is the AGENTS.md stanza, the three hooks, gate profiles, `gate.preflight`, turning the gate off, `checkride gate`'s harness split, seeing the gate run, and avoiding duplicate runs. I moved it whole, word for word, into `docs/agents.md` ("Working with agents"), with each heading raised one level so every anchor (`#make-it-a-hard-gate`, `#the-gate-command`, `#turning-the-gate-off`, `#when-the-gate-is-too-slow`) still resolves inside the page. `docs/cursor.md` linked `getting-started.md#make-it-a-hard-gate`, so it now points at `agents.md`. The `links` check ignores fragments, so it would not have caught that broken link. Neither `plugin.md` nor `cursor.md` fit: one covers the skills, the other covers Cursor's differences, and neither covers the Claude Code gate. The `CHANGELOG.md` entry that links `getting-started.md#when-the-gate-is-too-slow` is history, so I left it alone.
+
+  **2.** The other moves stayed inside the seam
+
+  The TypeScript new-project walk-through (shapes, the `src/` and `test/` trees) and the new Go or Rust project went to `distribution.md` under "Starting a new project". "Uninstalling" moved there too, and now also names a local target's config and baseline files. So did the details of adopting a repo without Node. The config `init` writes, with why the file rather than detection picks each tool and why `typecheck-tests` exists, went to `configuration.md` as "The config `init` writes". The test that checks the drawn `test/` tree against `test-dir-layout.yml` now reads `distribution.md`, because that tree lives there now. `site/docs.html` needed no change: its sections mirror the site's own pages, not getting-started's anchors.
+
+  **3.** The index test checks every page, the design records included
+
+  `docs-currency.test.ts` walks `docs/` recursively for markdown and requires each page to be linked from one of the four job sections. It also checks that the sections are exactly those four, in order, and that every page they link exists. The five `spec-*.md` design records go under Reference, in a short "Design records" list, because the done-when says every page under `docs/`.
