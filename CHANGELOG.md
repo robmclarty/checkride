@@ -15,6 +15,8 @@ the lockfile takes the release. In a `mise.toml`, change the version on the
 `mise install`. A repo on an older 0.x release reads the entries between its
 version and this one first, since a 0.x minor could break.
 
+## [0.25.0] - 2026-11-21
+
 ### Changed
 
 - **A `lint` check that runs oxlint without `--type-aware` says so.** Where
@@ -47,6 +49,12 @@ version and this one first, since a 0.x minor could break.
   "Oxlint, type-aware with oxlint-tsgolint", a deliberate exception to
   legacy invariance. The invariance golden is re-recorded for the five
   examples it reaches.
+
+### Internal
+
+- The docs say what `--strict` and the `protect` hook leave open, and weigh
+  the nearest alternatives to checkride.
+- Three example READMEs show the `lint` line their runs print.
 
 ## [0.24.1] - 2026-11-18
 
@@ -5272,6 +5280,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.25.0]: https://www.npmjs.com/package/checkride/v/0.25.0
 [0.24.1]: https://www.npmjs.com/package/checkride/v/0.24.1
 [0.24.0]: https://www.npmjs.com/package/checkride/v/0.24.0
 [0.23.0]: https://www.npmjs.com/package/checkride/v/0.23.0
