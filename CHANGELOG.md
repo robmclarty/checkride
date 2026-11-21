@@ -15,6 +15,39 @@ the lockfile takes the release. In a `mise.toml`, change the version on the
 `mise install`. A repo on an older 0.x release reads the entries between its
 version and this one first, since a 0.x minor could break.
 
+### Changed
+
+- **A `lint` check that runs oxlint without `--type-aware` says so.** Where
+  no `package.json` declares `oxlint-tsgolint`, the check drops the flag and
+  runs plain oxlint, yet it still read "Oxlint, type-aware with
+  oxlint-tsgolint" and passed, so a green run looked as if the type-aware
+  rules had run. Its description now reads "Oxlint, without type-aware
+  rules", in the run's output and in `summary.json`, and `doctor` prints a
+  line beneath the `lint` row saying the rules are off and what turns them
+  on. A check whose own `args` leave the flag out reads the same, and a
+  `description` the config sets stands.
+- **Declaring `tsrs` keeps `--type-aware`.** oxlint 1.94 runs its
+  type-aware rules through `tsrs` as well as `oxlint-tsgolint`, and a repo
+  that declared only `tsrs` had the flag dropped.
+
+### Fixed
+
+- **The missing-tsgolint hint prints under oxlint 1.94.** That release
+  reworded the message to `Failed to find type-aware linter executable`,
+  which the hint's pattern didn't match, so a red `lint` check showed
+  oxlint's message without the line saying to install `oxlint-tsgolint` or
+  turn type-aware linting off. Both wordings match now.
+
+### Contract
+
+#### Not additive
+
+- Changed: a check that runs oxlint without `--type-aware` records
+  `description: "Oxlint, without type-aware rules"` where it recorded
+  "Oxlint, type-aware with oxlint-tsgolint", a deliberate exception to
+  legacy invariance. The invariance golden is re-recorded for the five
+  examples it reaches.
+
 ## [0.24.1] - 2026-11-18
 
 ### Added

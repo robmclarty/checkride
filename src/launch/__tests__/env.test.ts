@@ -78,6 +78,12 @@ describe('setupHint', () => {
     expect(hint).toContain('`--type-aware` in the check');
   });
 
+  test('names oxlint-tsgolint under the wording oxlint 1.94.0 prints, on stdout', () => {
+    // oxlint 1.94.0, which also runs tsrs, `oxlint --type-aware --format=json` with neither package installed.
+    const stdout = 'Failed to find type-aware linter executable. You may need to add the `tsrs` or `oxlint-tsgolint` package to your project?\n';
+    expect(setupHint({ stdout, stderr: '' })).toContain('need the oxlint-tsgolint package: install it, or turn type-aware linting off');
+  });
+
   test('names pnpm install when pnpm exec finds no copy of a tool the project declares', () => {
     // pnpm 11.28.5 prints it on stdout, after a stray `undefined`; older releases pad the code with spaces.
     expect(setupHint({ stdout: 'undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "oxlint" not found\n', stderr: '' })).toBe(

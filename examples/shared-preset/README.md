@@ -31,7 +31,7 @@ It exits **0**:
 ✔ license-headers  org policy (strict tier): every source file carries a license header  [custom]
 ✔ no-todos         org policy: no TODO comments (waived for src/legacy until Q3)  [custom]
 ✔ types            TypeScript type checking (incremental, via project references)  [detected: tsconfig.json]
-✔ lint             Oxlint with tsgolint type-aware rules  [detected: .oxlintrc.json]
+✔ lint             Oxlint, without type-aware rules  [detected: .oxlintrc.json]
 ```
 
 ## The shape of it

@@ -261,6 +261,19 @@ export type Adapter = {
    */
   flagDeps?: Readonly<Record<string, readonly string[]>>;
   /**
+   * How the row reads where its check runs without one of its `flagDeps`
+   * arguments, whether resolution dropped it or a config entry's own `args`
+   * leave it out: the `description` the check reports, unless the entry
+   * sets one, and the note `doctor` prints beneath its row. Omitted, the
+   * row reads the same either way.
+   */
+  withoutFlags?: { description: string; note: string };
+  /**
+   * The `withoutFlags` note of a check that runs without one of its
+   * `flagDeps` arguments. Resolution sets it; no registry row does.
+   */
+  flagNote?: string;
+  /**
    * Arguments that make a static adapter load code the sniffs can't vouch
    * for, such as tflint's `--config`, which names a config they don't read.
    * Each counts as a `nonStaticArgs` entry does.

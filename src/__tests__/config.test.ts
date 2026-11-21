@@ -638,6 +638,34 @@ describe('flagDeps: an argument whose package nothing declares', () => {
     await writeFile(join(dir, '.oxlintrc.json'), '{}');
     expect(lint()?.args).toEqual(['exec', 'oxlint', '--type-aware', '--format=json']);
   });
+
+  test('declaring tsrs, which oxlint 1.94.0 also runs, keeps --type-aware', async () => {
+    await pkg('.', { oxlint: '1.94.0', tsrs: '1.0.0' });
+    expect(lint()?.args).toEqual(['exec', 'oxlint', '--type-aware', '--format=json']);
+  });
+
+  test('a check that runs without the flag says so in its description, and carries the note doctor prints', async () => {
+    await pkg('.', { oxlint: '1.94.0' });
+    expect(lint()).toMatchObject({ description: 'Oxlint, without type-aware rules', flagNote: expect.stringContaining('Runs without `--type-aware`') });
+    // An entry's own args that leave the flag out read the same, whatever is declared.
+    await pkg('.', { oxlint: '1.94.0', 'oxlint-tsgolint': '7.0.2007' });
+    expect(lint({ checks: { lint: { use: 'oxlint', args: ['exec', 'oxlint', '--format=json'] } } })?.description).toBe('Oxlint, without type-aware rules');
+  });
+
+  test('a check that runs with the flag reads as the row does, an entry that names a dropped flag included', async () => {
+    await pkg('.', { oxlint: '1.94.0', 'oxlint-tsgolint': '7.0.2007' });
+    expect(lint()?.description).toBe('Oxlint, type-aware with oxlint-tsgolint');
+    expect(lint()?.flagNote).toBeUndefined();
+    await pkg('.', { oxlint: '1.94.0' });
+    const named = lint({ checks: { lint: { use: 'oxlint', args: ['exec', 'oxlint', '--type-aware', '--format=json'] } } });
+    expect(named?.description).toBe('Oxlint, type-aware with oxlint-tsgolint');
+    expect(named?.flagNote).toBeUndefined();
+  });
+
+  test('a description the entry sets stands, and the note still rides along', async () => {
+    await pkg('.', { oxlint: '1.94.0' });
+    expect(lint({ checks: { lint: { use: 'oxlint', description: 'Lint' } } })).toMatchObject({ description: 'Lint', flagNote: expect.stringContaining('type-aware rules are off') });
+  });
 });
 
 describe('effective order (precedence: config > adapter > slot > any)', () => {

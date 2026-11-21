@@ -1406,6 +1406,14 @@ describe('runDoctor under --static-only', () => {
     expect(report.checks.some((c) => c.skip !== undefined)).toBe(false);
     expect(exitCode).toBe(1);
   });
+
+  test('a lint check that runs without --type-aware says so beneath its row, and one that runs with it says nothing', async () => {
+    expect((await doctor(false)).row('lint')?.hint ?? '').not.toContain('--type-aware');
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.94.0', cspell: '9.0.0', prettier: '3.6.0', typescript: '5.9.3' } }));
+    const { row, text } = await doctor(false, {}, false);
+    expect(row('lint')?.hint).toContain("Runs without `--type-aware`, so oxlint's type-aware rules are off.");
+    expect(text).toMatch(/-> .*Runs without `--type-aware`/);
+  });
 });
 
 /**

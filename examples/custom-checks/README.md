@@ -28,7 +28,7 @@ It exits **0**, and the run looks like this:
 ```text
 ✔ tidy           Normalize the JSON fixtures before anything else reads them  [custom]
 ✔ types          TypeScript type checking (incremental, via project references)  [detected: tsconfig.json]
-✔ lint           Oxlint with tsgolint type-aware rules  [detected: .oxlintrc.json]
+✔ lint           Oxlint, without type-aware rules  [detected: .oxlintrc.json]
 ...
 ✔ openapi        The OpenAPI document parses and declares every route the app serves  [custom]
 ○ terraform-fmt  skip  no detect file present

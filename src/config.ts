@@ -1669,6 +1669,22 @@ function dropUndeclared(a: Adapter, declared: ReadonlySet<string>): Adapter {
 }
 
 /**
+ * `check` reading as its row's `withoutFlags` says, where the arguments it
+ * runs with lack one of the row's `flagDeps` arguments: resolution dropped
+ * it, or the entry's own `args` leave it out. A `description` the entry
+ * sets stands. Read from the arguments the check ends up with, so an entry
+ * that names a dropped argument itself reads as the row does.
+ */
+function withoutFlagsShown(check: ResolvedCheck, entry: SlotConfig | undefined): ResolvedCheck {
+  const a = check.adapter;
+  if (a?.withoutFlags === undefined || a.flagDeps === undefined) return check;
+  if (Object.keys(a.flagDeps).every((flag) => a.args.includes(flag))) return check;
+  const described = isEntryObject(entry) && 'description' in entry && entry.description !== undefined;
+  const description = described ? {} : { description: a.withoutFlags.description };
+  return { ...check, adapter: { ...a, ...description, flagNote: a.withoutFlags.note } };
+}
+
+/**
  * The first header in a TOML file's text that opens `table` or a sub-table of
  * it, an array of tables included, as written (`[tool.ruff.lint]`), or `null`.
  * A best-effort read of the text: a header inside a multi-line string counts.
@@ -2080,7 +2096,7 @@ function resolveOne(
   if (detection.declaredOnly === true && isEntryObject(entry) && !decides(entry)) {
     invalidConfig(`checks.${slot.name} names no tool: a suite runs exactly the checks its config declares, so give it a "use" or a "command"`);
   }
-  const resolved = resolveConfigOrDetect(slot, entry, withDeclaredFlags(adapters, detection), detection, explicit);
+  const resolved = withoutFlagsShown(resolveConfigOrDetect(slot, entry, withDeclaredFlags(adapters, detection), detection, explicit), entry);
   // Config may override the slot's opt-in default (configure-without-opting-in).
   const overridden = applyOptIn(resolved, entry, slot.name);
   // A script-gated adapter (build) stands down — never red — when its script is

@@ -1022,7 +1022,7 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
 2. Its argv carries none of the adapter's flags that need the install, such
    as oxlint's `--type-aware`, which the blessed oxlint invocation carries
    wherever a package.json from the check up to the repo root declares
-   `oxlint-tsgolint`, and none that load code, such as tflint's `--config`. A
+   `oxlint-tsgolint` or `tsrs`, and none that load code, such as tflint's `--config`. A
    flag counts with its value after `=` as well.
 3. None of the adapter's code configs, such as `.markdownlint-cli2.cjs`,
    `oxlint.config.ts` or `prettier.config.mts`, sits where the tool reads a

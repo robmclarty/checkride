@@ -113,7 +113,12 @@ export const TS_PACK: Pack = {
       static: true,
       nonStaticArgs: ['--type-aware'],
       // Type-aware rules run through tsgolint, which oxlint finds in a node_modules/.bin above it.
-      flagDeps: { '--type-aware': ['oxlint-tsgolint'] },
+      // oxlint 1.94.0 also runs tsrs, and names both packages when it finds neither.
+      flagDeps: { '--type-aware': ['oxlint-tsgolint', 'tsrs'] },
+      withoutFlags: {
+        description: 'Oxlint, without type-aware rules',
+        note: "Runs without `--type-aware`, so oxlint's type-aware rules are off. They run where `oxlint-tsgolint` is a dependency, or where the check's `args` carry the flag.",
+      },
       codeConfigs: ['oxlint.config.ts', 'oxlint.config.mts', 'oxlint.config.cts', 'oxlint.config.js', 'oxlint.config.mjs', 'oxlint.config.cjs'],
       // A config it extends can add jsPlugins, and the sniff doesn't follow it.
       codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins', 'extends'] }],

@@ -71,8 +71,10 @@ const SETUP_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) =>
       `the repo pins pnpm ${wanted}, and pnpm ${running} refuses to run under that pin: switch to a pnpm it names (corepack or mise can), or change the pin`,
   },
   {
-    // oxlint 1.87.0, type-aware (`--type-aware`, or `options.typeAware` in its config) with no tsgolint to run.
-    printed: /Failed to find tsgolint executable/,
+    // oxlint, type-aware (`--type-aware`, or `options.typeAware` in its config) with no tsgolint to run:
+    // 1.87.0 prints `Failed to find tsgolint executable`, and 1.94.0, which also runs tsrs,
+    // `Failed to find type-aware linter executable`.
+    printed: /Failed to find (?:tsgolint|type-aware linter) executable/,
     hint: () =>
       "oxlint's type-aware rules need the oxlint-tsgolint package: install it, or turn type-aware linting off (`--type-aware` in the check's args, `options.typeAware` in .oxlintrc.json)",
   },

@@ -932,7 +932,7 @@ function toolRow(
   const lead = isDefault
     ? probe.hint
     : `Opt-in — run with \`--include ${base.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
-  const body = `${lead ?? ''}${inspectsClause(adapter, r.slot)}`.trim();
+  const body = `${lead ?? ''}${inspectsClause(adapter, r.slot)}${adapter.flagNote === undefined ? '' : ` ${adapter.flagNote}`}`.trim();
   const hint = body.length > 0 ? body : null;
   const pin = {
     ...(probe.pinSource !== undefined ? { pinSource: probe.pinSource } : {}),
